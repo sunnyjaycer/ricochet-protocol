@@ -1,5 +1,5 @@
 import { network, ethers } from 'hardhat';
-import { increaseTime } from "../hardhat-utils/time-utils";
+import { increaseTime } from "./helpers";
 import { assert, expect } from 'chai';
 
 import { Bank, GLDToken, TellorPlayground, USDToken } from "../typechain";
@@ -91,7 +91,7 @@ describe("Bank", function () {
     await bankInstance2.addReporter(randomUser6.address);
   });
 
-  it('should create bank with correct parameters', async function () {
+  xit('should create bank with correct parameters', async function () {
     const interestRate = await bankInstance2.getInterestRate();
     const originationFee = await bankInstance2.getOriginationFee();
     const collateralizationRatio = await bankInstance2.getCollateralizationRatio();
@@ -125,7 +125,7 @@ describe("Bank", function () {
     assert(ctAddress, ctInstance2.address);
   });
 
-  it('only admin role should add / remove new roles', async function () {
+  xit('only admin role should add / remove new roles', async function () {
     const admin = await bankInstance2.getRoleMember(DEFAULT_ADMIN_ROLE, 0);
     assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.constants.Two));
     assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.constants.Two));
@@ -176,7 +176,7 @@ describe("Bank", function () {
   });
 
 
-  it('should allow admin to deposit reserves', async function () {
+  xit('should allow admin to deposit reserves', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     // let adminAllowance = await dtInstance2.allowance(deployer.address, bankInstance2.address);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
@@ -186,7 +186,7 @@ describe("Bank", function () {
     assert(tokenBalance.eq(depositAmount));
   });
 
-  it('should allow admin to withdraw reserves', async function () {
+  xit('should allow admin to withdraw reserves', async function () {
 
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
@@ -204,15 +204,15 @@ describe("Bank", function () {
     assert(bankFactoryOwnerBalance.eq(feeAmt));
   });
 
-  it('should not allow non-admin to deposit reserves', async function () {
+  xit('should not allow non-admin to deposit reserves', async function () {
     await expect(bankInstance2.connect(randomUser2).reserveDeposit(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
   });
 
-  it('should not allow non-admin to withdraw reserves', async function () {
+  xit('should not allow non-admin to withdraw reserves', async function () {
     await expect(bankInstance2.connect(randomUser2).reserveWithdraw(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
   });
 
-  it('should allow user to deposit collateral into vault', async function () {
+  xit('should allow user to deposit collateral into vault', async function () {
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
     const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
@@ -223,7 +223,7 @@ describe("Bank", function () {
     assert(tokenBalance.eq(depositAmount));
   });
 
-  it('should allow user to withdraw collateral from vault', async function () {
+  xit('should allow user to withdraw collateral from vault', async function () {
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
     // let user2Allowance = await ctInstance2.allowance(randomUser2.address, bankInstance2.address);
 
@@ -238,7 +238,7 @@ describe("Bank", function () {
     assert(tokenBalance.eq(ethers.constants.Zero));
   });
 
-  it('should not allow user to withdraw more collateral than they have in vault', async function () {
+  xit('should not allow user to withdraw more collateral than they have in vault', async function () {
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
     await expect(bankInstance2.connect(randomUser2).vaultWithdraw(largeDepositAmount)).to.be.revertedWith("CANNOT WITHDRAW MORE COLLATERAL");
@@ -246,38 +246,41 @@ describe("Bank", function () {
 
   it('should not allow user to withdraw collateral from vault if undercollateralized', async function () {   // Not passed
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
+    await bankInstance2.connect(deployer).reserveDeposit(depositAmount); //!!
   
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(depositAmount);
-    await expect(bankInstance2.connect(randomUser2).vaultWithdraw(largeDepositAmount)).to.be.revertedWith("CANNOT UNDERCOLLATERALIZE VAULT");
+    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
+    await expect(bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount)).to.be.revertedWith("CANNOT UNDERCOLLATERALIZE VAULT");
   });  // Error ---> I get "reverted with reason string 'NOT ENOUGH COLLATERAL'"
 
   it('should add origination fee to a vault\'s borrowed amount', async function () {   // Not passed
-    // await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    // await bankInstance2.connect(randomUser2).reserveDeposit(depositAmount);
+    // Deposit depositAmount into the bank as liquidity for people to borrow
+    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
+    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
+    // User deposits collateral
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(depositAmount);
+    // borrow half the amount of deposit amount
+    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
     const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
     const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    console.log("123456aaa collateralAmount: " + collateralAmount);
     assert(collateralAmount.eq(depositAmount));
-    console.log("123456 - ");
-    // Calculate borrowed amount
+    // Debt amount should equal borrow amount plus origination fee (origination fee isn't taken up front)
     let b_amount = borrowAmount;
     b_amount = b_amount.add(
       b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
     assert(debtAmount.eq(ethers.BigNumber.from(b_amount)));
-
+    
     const collateralBalance = await ctInstance2.balanceOf(bankInstance2.address);
     const debtBalance = await dtInstance2.balanceOf(bankInstance2.address);
+    // Collateral should equal amount deposited in "User deposits collateral"
     assert(collateralBalance.eq(depositAmount));
-    assert(debtBalance.eq(ethers.BigNumber.from(34)));
-  });  // Error ---> I get "reverted with reason string 'NOT ENOUGH COLLATERAL"
+    // Debt balance should equal depositAmount - borrowAmount 
+    assert( debtBalance.eq( depositAmount.sub(borrowAmount) ) );
+  });
 
-  it('should allow the user to borrow', async function () {    // JR TEMPLATE
+  xit('should allow the user to borrow', async function () {    // JR TEMPLATE
     // The approve is required
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
@@ -312,7 +315,7 @@ describe("Bank", function () {
     assert(debtBalance.eq(ethers.utils.parseUnits("60")));
   });
 
-  it('should not allow the user to borrow above collateralization ratio', async function () {
+  xit('should not allow the user to borrow above collateralization ratio', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -324,7 +327,7 @@ describe("Bank", function () {
     await expect(bankInstance2.connect(randomUser2).vaultBorrow(ethers.constants.One)).to.be.revertedWith("NOT ENOUGH COLLATERAL");
   });
 
-  it('should accrue interest on a vault\'s borrowed amount', async function () {
+  xit('should accrue interest on a vault\'s borrowed amount', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -346,7 +349,7 @@ describe("Bank", function () {
     assert(debtBalance.eq(depositAmount.sub(borrowAmount)));
   });
 
-  it('should accrue interest on a vault\'s borrowed amount with repayment', async function () {
+  xit('should accrue interest on a vault\'s borrowed amount with repayment', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -376,7 +379,7 @@ describe("Bank", function () {
     expect(debtBalance.eq(depositAmount.sub(borrowAmount.sub(smallBorrowAmount))));
   });
 
-  it('should allow user to withdraw after debt repayment', async function () {
+  xit('should allow user to withdraw after debt repayment', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -401,7 +404,7 @@ describe("Bank", function () {
     assert(debtBalance.eq(depositAmount.sub(borrowAmount).add(f_b_amount)));
   });
 
-  it('should not allow user to withdraw without debt repayment', async function () {
+  xit('should not allow user to withdraw without debt repayment', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -413,7 +416,7 @@ describe("Bank", function () {
     await expect(bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount)).to.be.revertedWith("CANNOT UNDERCOLLATERALIZE VAULT");
   });
 
-  it('should not allow user to borrow below the collateralization ratio', async function () {
+  xit('should not allow user to borrow below the collateralization ratio', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -456,7 +459,7 @@ describe("Bank", function () {
   //   assert(collateralizationRatio.eq(ethers.BigNumber.from(15301)));
   // });
 
-  it('should not liquidate overcollateralized vault', async function () {
+  xit('should not liquidate overcollateralized vault', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -542,7 +545,7 @@ describe("Bank", function () {
   // assert(collateralReserveBalance.eq(collateralToLiquidate.sub(feeAmt)));
   // });
 
-  it('should not update prices if not admin / reporter', async function () {
+  xit('should not update prices if not admin / reporter', async function () {
     await expect(bankInstance2.connect(randomUser4).updateCollateralPrice()).to.be.revertedWith("not price updater or admin");
     await expect(bankInstance2.connect(randomUser4).updateDebtPrice()).to.be.revertedWith("not price updater or admin");
   });
