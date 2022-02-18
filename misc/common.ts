@@ -208,19 +208,25 @@ export const common = async () => {
         ]
       )
     );
+    console.log('here2');
     const governance: string = await host.getGovernance();
+    console.log('here2');
     const sfGovernanceRO = await ethers.getContractAt(
       SuperfluidGovernanceBase.abi,
       governance
     );
+    console.log('here2');
     const govOwner = await sfGovernanceRO.owner();
+    console.log("govOwner",govOwner);
     const [govOwnerSigner] = await impersonateAccounts([govOwner]);
+    console.log('here2');
     const sfGovernance = await ethers.getContractAt(
       SuperfluidGovernanceBase.abi,
       governance,
       govOwnerSigner
     );
-    //console.log("sf governance", sfGovernance.whiteListNewApp);
+    console.log("host contract",sf.host.hostContract.address);
+    console.log("sf governance", sfGovernance.whiteListNewApp);
     await sfGovernance.whiteListNewApp(
       sf.host.hostContract.address,
       encodedKey
