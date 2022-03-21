@@ -4,6 +4,15 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+import {
+    ISuperfluid,
+    ISuperToken
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+
+import {
+    IConstantFlowAgreementV1
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
+
 /**
  * @title BankStorage
  * This contract provides the data structures, variables, and getters for Bank
@@ -43,10 +52,16 @@ contract BankStorage {
         uint256 createdAt;
     }
 
+    struct SF {
+        ISuperfluid host;
+        IConstantFlowAgreementV1 cfa;
+    }
+
     mapping(address => Vault) public vaults;
     Token debt;
     Token collateral;
     Reserve reserve;
+    SF superfluid;
 
     /**
      * @dev Getter function for the bank name
@@ -188,19 +203,52 @@ contract BankStorage {
         return vaults[msg.sender].debtAmount;
     }
 
+    // /**
+    //  * @dev Getter function for the user's vault debt amount
+    //  *   uses a simple interest formula (i.e. not compound  interest)
+    //  * @return principal debt amount
+    //  */
+    // function getVaultRepayAmount() public view returns (uint256 principal) {
+
+    //     // Alternative Continuous Simple Interest Implementation
+    //     // get rid of reserve period and just use seconds
+    //     // additional interest = seconds elapsed since borrow * ( (principal * annual interest rate) / seconds in a year )
+
+    //     // get initial debt amount (how much as borrowed + origination fee)
+    //     principal = vaults[msg.sender].debtAmount;
+    //     // how many periods for adding interest are there per year
+    //     // so if the period is 1 day, then you have 365 periods per year
+    //     uint256 periodsPerYear = 365 days / reserve.period;
+    //     // how many periods have elapsed since the creation of the vault
+    //     // current period number - period of creation
+    //     uint256 periodsElapsed = (block.timestamp / reserve.period) -
+    //         (vaults[msg.sender].createdAt / reserve.period);
+    //     // interest rate is provided in an annual format
+    //     // get show how much interest would have accrued over the whole year
+    //     //      ( (principal * reserve.interestRate) / 10000 )
+    //     // divide it down to interest paid per day
+    //     //      / periodsPerYear
+    //     // multiply by periodsElapsed to get how much interest has accrued in total
+    //     principal +=
+    //         ( ( (principal * reserve.interestRate) / 10000 ) / periodsPerYear) *
+    //         periodsElapsed;
+    // }
+    
     /**
      * @dev Getter function for the user's vault debt amount
      *   uses a simple interest formula (i.e. not compound  interest)
      * @return principal debt amount
      */
     function getVaultRepayAmount() public view returns (uint256 principal) {
-        principal = vaults[msg.sender].debtAmount;
-        uint256 periodsPerYear = 365 days / reserve.period;
-        uint256 periodsElapsed = (block.timestamp / reserve.period) -
-            (vaults[msg.sender].createdAt / reserve.period);
-        principal +=
-            ((principal * reserve.interestRate) / 10000 / periodsPerYear) *
-            periodsElapsed;
+
+        // Alternative Continuous Simple Interest Implementation
+        // get rid of reserve period and just use seconds
+        // additional interest = seconds elapsed since borrow * ( (principal * annual interest rate) / seconds in a year )
+
+        uint256 secondsElapsed = block.timestamp - vaults[msg.sender].createdAt;
+        uint256 interestPerSecond = ( ( vaults[msg.sender].debtAmount * reserve.interestRate ) / 10000 ) / 31536000;
+        uint256 principal = vaults[msg.sender].debtAmount + (secondsElapsed * interestPerSecond);
+        return principal;
     }
 
     /**

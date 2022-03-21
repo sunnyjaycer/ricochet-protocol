@@ -43,11 +43,11 @@ describe("BankFactory", function () {
 
     bankFactory = (await ethers.getContractFactory(
       "BankFactory",
-      deployer
+      {signer:deployer}
     ));
     bank = (await ethers.getContractFactory(
       "Bank",
-      deployer
+      {signer:deployer}
     ));
 
     bankInstance = await bank.deploy(TELLOR_ORACLE_ADDRESS);
@@ -172,7 +172,7 @@ async function filterEvent(bankFactoryInstance: BankFactory, bankNumber: number)
   const bankAddress = await bankFactoryInstance.getBankAddressAtIndex(bankNumber);
   const filter = bankFactoryInstance.filters.BankCreated();
   // beware about an error regarding the block number in mainnet forking
-  const logs = bankFactoryInstance.queryFilter(filter, parseInt(`${process.env.FORK_BLOCK_NUMBER}`));
+  const logs = bankFactoryInstance.queryFilter(filter, parseInt(`${await ethers.provider.getBlockNumber()}`));
   (await logs).forEach((log) => {
     // console.log("function filterEvent === new bank: " + log.args.newBankAddress + "  owner: " + log.args.owner);
     // console.log("function filterEvent === bankAddress: " + bankAddress);

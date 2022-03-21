@@ -1,0 +1,1 @@
+declare module '@superfluid-finance/ethereum-contracts/scripts/deploy-framework.js';

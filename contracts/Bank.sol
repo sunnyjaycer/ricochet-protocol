@@ -1,12 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+pragma abicoder v2;
+
 import "./BankStorage.sol";
-import "./ITellor.sol";
+import "./tellor/ITellor.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
+
+import {
+    ISuperfluid,
+    ISuperToken,
+    ISuperApp,
+    ISuperAgreement,
+    SuperAppDefinitions
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+
+import {
+    IConstantFlowAgreementV1
+} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
+
+import {
+    SuperAppBase
+} from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
 
 import "hardhat/console.sol";
 
@@ -16,7 +34,7 @@ import "hardhat/console.sol";
  * origination fees from users that borrow against their collateral.
  * The oracle for Bank is Tellor.
  */
-contract Bank is BankStorage, AccessControlEnumerable, Initializable {
+contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBase {
     using SafeERC20 for IERC20;
 
     address private _bankFactoryOwner;
@@ -32,8 +50,31 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable {
     event Liquidation(address indexed borrower, uint256 debtAmount);
 
     /*Constructor*/
-    constructor(address payable oracleContract) {
+    constructor(
+        ISuperfluid host,
+        IConstantFlowAgreementV1 cfa,
+        string memory registrationKey,
+        address payable oracleContract
+        ) {
+        require(address(host) != address(0), "host");
+        require(address(cfa) != address(0), "cfa");
+
+        superfluid.host = host;
+        superfluid.cfa = cfa;
         reserve.oracleContract = oracleContract;
+
+        uint256 configWord =
+            SuperAppDefinitions.APP_LEVEL_FINAL |
+            SuperAppDefinitions.BEFORE_AGREEMENT_CREATED_NOOP |
+            SuperAppDefinitions.BEFORE_AGREEMENT_UPDATED_NOOP |
+            SuperAppDefinitions.BEFORE_AGREEMENT_TERMINATED_NOOP;
+
+        // _scp.host.registerApp(configWord);
+        if(bytes(registrationKey).length > 0) {
+            superfluid.host.registerAppWithKey(configWord, registrationKey);
+        } else {
+            superfluid.host.registerApp(configWord);
+        }
     }
 
     /*Modifiers*/
@@ -283,33 +324,53 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable {
      * @dev Use this function to allow users to borrow against their collateral
      * @param amount to borrow
      */
+    // Super App Modification Notes
+    // 
     function vaultBorrow(uint256 amount) external {
+        // get current debt of borrower and update the vault debt amount
+        // if it's currently zero, then the borrower hasn't taken out a loan there's going to be nothing, so no need to update
         if (vaults[msg.sender].debtAmount != 0) {
             vaults[msg.sender].debtAmount = getVaultRepayAmount();
         }
+        // ( collateral value / debt price ) -> reframes value of collateral to debt token quantity based on value of collateral
+        // / collat ratio -> collat ratio is (collat value/debt value), dividing gives us the max percent of the collateral value that can be borrowed
         uint256 maxBorrow = ((vaults[msg.sender].collateralAmount *
             collateral.price) /
             debt.price /
             reserve.collateralizationRatio) * 100;
+        // reframe max borrow amount to debt token granularity
         maxBorrow *= debt.priceGranularity;
         maxBorrow /= collateral.priceGranularity;
+        // subtract maxBorrow by how much the borrower has already borrowed
         maxBorrow -= vaults[msg.sender].debtAmount;
+        // increase amount borrowed by borrow amount + origination fee
         vaults[msg.sender].debtAmount +=
             amount +
             ((amount * reserve.originationFee) / 10000);
+        // if amount borrowed is greater than max permitted, then revert
         require(
             vaults[msg.sender].debtAmount < maxBorrow,
             "NOT ENOUGH COLLATERAL"
         );
+        // if amount borrowed is greater than tokens available in reserve, then revert
         require(
             amount <= IERC20(debt.tokenAddress).balanceOf(address(this)),
             "NOT ENOUGH RESERVES"
         );
-        if (block.timestamp - vaults[msg.sender].createdAt > reserve.period) {
-            // Only adjust if more than 1 interest rate period has past
-            vaults[msg.sender].createdAt = block.timestamp;
-        }
+        // // if more than a interest accruement period has passed, since vault creation, then reset createdAt to current time
+        // // if this is first time borrowing (making a vault), it will obviously set createdAt
+        // // the reason this wants to update with each repayment is because it affects the interest calculation
+        // if (block.timestamp - vaults[msg.sender].createdAt > reserve.period) {
+        //     // Only adjust if more than 1 interest rate period has past
+        //     vaults[msg.sender].createdAt = block.timestamp;
+        // }
+
+        // reseting to always be block.timestamp because we need real-time accounting for superfluid
+        vaults[msg.sender].createdAt = block.timestamp;
+
+        // reduce balance of reserve
         reserve.debtBalance -= amount;
+        // provide borrower with debt tokens
         IERC20(debt.tokenAddress).safeTransfer(msg.sender, amount);
         emit VaultBorrow(msg.sender, amount);
     }
@@ -321,16 +382,26 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable {
      */
     function vaultRepay(uint256 amount) external {
         require(amount > 0, "Amount is zero !!");
+        // get debt amount with accrued interest
         vaults[msg.sender].debtAmount = getVaultRepayAmount();
         require(
             amount <= vaults[msg.sender].debtAmount,
             "CANNOT REPAY MORE THAN OWED"
         );
+        // reduce the debt amount in storage
         vaults[msg.sender].debtAmount -= amount;
+        // increase the reserve balance by repayment amount
         reserve.debtBalance += amount;
-        uint256 periodsElapsed = (block.timestamp / reserve.period) -
-            (vaults[msg.sender].createdAt / reserve.period);
-        vaults[msg.sender].createdAt += periodsElapsed * reserve.period;
+        
+        // // see how many period elabsed since creation of vault
+        // uint256 periodsElapsed = (block.timestamp / reserve.period) -
+        //     (vaults[msg.sender].createdAt / reserve.period);
+        // // increase vault creation period number by number of periods elapsed since original vault creation
+        // vaults[msg.sender].createdAt += periodsElapsed * reserve.period;
+
+        // reseting to always be block.timestamp because we need real-time accounting for superfluid
+        vaults[msg.sender].createdAt = block.timestamp;
+
         IERC20(debt.tokenAddress).safeTransferFrom(
             msg.sender,
             address(this),
@@ -348,7 +419,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable {
             amount <= vaults[msg.sender].collateralAmount,
             "CANNOT WITHDRAW MORE COLLATERAL"
         );
-
+        // 
         uint256 maxBorrowAfterWithdraw = (((vaults[msg.sender]
             .collateralAmount - amount) * collateral.price) /
             debt.price /

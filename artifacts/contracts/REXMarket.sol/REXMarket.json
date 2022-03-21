@@ -68,6 +68,11 @@
           "internalType": "uint256",
           "name": "_requestId",
           "type": "uint256"
+        },
+        {
+          "internalType": "uint128",
+          "name": "_shareScaler",
+          "type": "uint128"
         }
       ],
       "name": "addOutputPool",
@@ -539,7 +544,7 @@
           "type": "uint32"
         }
       ],
-      "name": "getOuputPool",
+      "name": "getOutputPool",
       "outputs": [
         {
           "components": [
@@ -557,6 +562,11 @@
               "internalType": "uint256",
               "name": "emissionRate",
               "type": "uint256"
+            },
+            {
+              "internalType": "uint128",
+              "name": "shareScaler",
+              "type": "uint128"
             }
           ],
           "internalType": "struct REXMarket.OutputPool",
