@@ -30,7 +30,7 @@ describe("Bank", function () {
   const TELLOR_ORACLE_ADDRESS = '0xACC2d27400029904919ea54fFc0b18Bf07C57875';
   const TELLOR_REQUEST_ID = 60;
   let oracle;
-  const INITIAL_BALANCE = "8000";
+  const INITIAL_BALANCE = "10000";
   let depositAmount: BigNumber;
   let largeDepositAmount: BigNumber;
   let withdrawAmount;
@@ -50,12 +50,13 @@ describe("Bank", function () {
   let randomUser9: SignerWithAddress;
 
   let sf: any;
+  let superSigner: any;
 
   let CT2;
   let DT2;
   let ctInstance2: GLDToken;
   let dtInstance2: any;
-  let dtInstance2x;
+  let dtInstance2x: any;
   let bankInstance2: Bank;
   let bank2;
   let tp: TellorPlayground;
@@ -85,6 +86,12 @@ describe("Bank", function () {
       resolverAddress: process.env.RESOLVER_ADDRESS, //this is how you get the resolver address
       protocolReleaseVersion: "test",
     })
+
+    // Set a "super signer" for getting flow rate operations
+    superSigner = await sf.createSigner({
+      signer: deployer,
+      provider: web3
+    });
 
   })
 
@@ -145,26 +152,13 @@ describe("Bank", function () {
     //  A non-admin has a positive balance
     await ctInstance2.transfer(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
     await dtInstance2.connect(deployer).mint(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-    console.log("User 2 Collateral Token Balance: ", await ctInstance2.connect(deployer).balanceOf(randomUser2.address));
-    console.log("User 2 Debt Token Balance: ", await dtInstance2.connect(deployer).balanceOf(randomUser2.address));
-    console.log("User 2 Debt Super Token Balance: ", 
-      await dtInstance2x.balanceOf({
-        account: randomUser2.address,
-        providerOrSigner: deployer
-      })
-    )
+    await checkTokenBalances([randomUser2], ["User 2"]);
 
     //  The admin has a positive balance
     await ctInstance2.transfer(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));  // Added line
     await dtInstance2.connect(deployer).mint(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-    console.log("Admin Collateral Token Balance: ", await ctInstance2.connect(deployer).balanceOf(deployer.address));
-    console.log("Admin Debt Token Balance: ", await dtInstance2.connect(deployer).balanceOf(deployer.address));
-    console.log("User 2 Debt Super Token Balance: ", 
-      await dtInstance2x.balanceOf({
-        account: deployer.address,
-        providerOrSigner: deployer
-      })
-    )
+    await checkTokenBalances([deployer], ["Admin"]);
+
     // set keepers
     await bankInstance2.addKeeper(randomUser3.address);
     await bankInstance2.addKeeper(randomUser4.address);
@@ -172,6 +166,35 @@ describe("Bank", function () {
     await bankInstance2.addReporter(randomUser5.address);
     await bankInstance2.addReporter(randomUser6.address);
   });
+
+  async function checkTokenBalances(user:SignerWithAddress[], name:string[]) {
+    console.log("===== Token Balances ====="); 
+    for (let i = 0; i < name.length; ++i) {
+      console.log(name[i])
+      console.log("    Collateral Token Balance: ", await ctInstance2.connect(user[i]).balanceOf(user[i].address));
+      console.log("    Debt Token Balance: ", await dtInstance2.connect(user[i]).balanceOf(user[i].address));
+      console.log("    Debt Super Token Balance: ", 
+        await dtInstance2x.balanceOf({
+          account: user[i].address,
+          providerOrSigner: user[i]
+        })
+      );
+    }
+    console.log("==========================\n");
+  }
+
+  async function getNetflowForEntities(user:SignerWithAddress[],name:string[]) {
+    console.log("===== Netflow Rates ====="); 
+    for (let i = 0; i < name.length; ++i) {
+      const flowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: user[i].address,
+        providerOrSigner: superSigner
+      });
+      console.log(name[i], "Net Flow Rate: ", flowRate);
+    }
+    console.log("==========================\n");
+  }
 
   xit('should create bank with correct parameters', async function () {
     const interestRate = await bankInstance2.getInterestRate();
@@ -256,7 +279,6 @@ describe("Bank", function () {
     assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.BigNumber.from(2)));
     assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.BigNumber.from(2)));
   });
-
 
   xit('should allow admin to deposit reserves', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
@@ -422,7 +444,7 @@ describe("Bank", function () {
     await expect(bankInstance2.connect(randomUser2).vaultBorrow(ethers.constants.One)).to.be.revertedWith("NOT ENOUGH COLLATERAL");
   });
 
-  it('should accrue interest on a vault\'s borrowed amount', async function () {
+  xit('should accrue interest on a vault\'s borrowed amount', async function () {
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
 
@@ -659,6 +681,51 @@ describe("Bank", function () {
   xit('should not update prices if not admin / reporter', async function () {
     await expect(bankInstance2.connect(randomUser4).updateCollateralPrice()).to.be.revertedWith("not price updater or admin");
     await expect(bankInstance2.connect(randomUser4).updateDebtPrice()).to.be.revertedWith("not price updater or admin");
+  });
+
+  it('Superfluid experimenting', async function () { 
+
+    // approve DTx to transfer DT
+    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
+
+    // user2 upgrades 100 tokens
+    const dtUpgradeOperation = dtInstance2x.upgrade({
+        amount: ethers.utils.parseEther("1000")
+    });
+
+    await dtUpgradeOperation.exec(randomUser2);
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
+
+    // user2 starts stream to superapp
+    await ( await sf.cfaV1.createFlow({
+      receiver: deployer.address,
+      superToken: dtInstance2x.address,
+      flowRate: "100000000",
+    }) ).exec( randomUser2 );
+
+    // // show stream rates
+    // const user2FlowRate = await sf.cfaV1.getNetFlow({
+    //   superToken: dtInstance2x.address,
+    //   account: randomUser2.address,
+    //   providerOrSigner: superSigner
+    // });
+
+    // console.log("user2FlowRate:", user2FlowRate);
+
+    // // show stream rates
+    // const deployerFlowRate = await sf.cfaV1.getNetFlow({
+    //   superToken: dtInstance2x.address,
+    //   account: randomUser2.address,
+    //   providerOrSigner: superSigner
+    // });
+
+    // console.log("deployerFlowRate:", deployerFlowRate);
+
+    await getNetflowForEntities([randomUser2, deployer], ["User 2","Admin"])
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
+
   });
 
 });
