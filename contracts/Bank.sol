@@ -333,7 +333,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
             vaults[msg.sender].debtAmount = getVaultRepayAmount();
         }
         // ( collateral value / debt price ) -> reframes value of collateral to debt token quantity based on value of collateral
-        // / collat ratio -> collat ratio is (collat value/debt value), dividing gives us the max percent of the collateral value that can be borrowed
+        // / collat ratio -> collat ratio is (collat value/debt value), dividing gives us the max portion of the collateral value that can be borrowed
         uint256 maxBorrow = ((vaults[msg.sender].collateralAmount *
             collateral.price) /
             debt.price /
