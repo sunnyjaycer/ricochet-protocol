@@ -683,7 +683,7 @@ describe("Bank", function () {
     await expect(bankInstance2.connect(randomUser4).updateDebtPrice()).to.be.revertedWith("not price updater or admin");
   });
 
-  it('Superfluid experimenting', async function () { 
+  xit('Superfluid experimenting', async function () { 
 
     // approve DTx to transfer DT
     await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
@@ -725,6 +725,37 @@ describe("Bank", function () {
     await getNetflowForEntities([randomUser2, deployer], ["User 2","Admin"])
 
     await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
+
+  });
+
+  it('SF happy path', async function () {
+
+    // approve DTx to transfer DT
+    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
+
+    // user2 upgrades 100 tokens
+    const dtUpgradeOperation = dtInstance2x.upgrade({
+        amount: ethers.utils.parseEther("10000")
+    });
+    await dtUpgradeOperation.exec(randomUser2);
+
+    await checkTokenBalances([randomUser2], ["User 2"]);
+
+    // Transfer 10,000 dtInstance2x to bank
+    // await dtInstance2x.connect(randomUser2).transfer(randomUser2.address, ethers.utils.parseEther("10000"));
+    const dtxTransferOperation = dtInstance2x.transfer({
+      _to: bankInstance2.address,
+      _value: ethers.utils.parseEther("10000")
+    });
+    await dtxTransferOperation.exec(randomUser2);
+
+    await checkTokenBalances([randomUser2], ["User 2"]);
+
+    // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+
+    // User starts stream of 20 dtInstance2x/year to bank
+
+    // Check balance of dtx in borrower and bank
 
   });
 

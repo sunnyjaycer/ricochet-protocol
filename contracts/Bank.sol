@@ -467,7 +467,10 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         uint256 minimumCollateralExpected = ( ( vaults[borrower].debtAmount + borrowAmount ) * reserve.collateralizationRatio ) / 100;
 
         // Collateral Amount greater than minimum collateral expected
-        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing too much");
+        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing > collateral permits");
+
+        // require that there is enough in reserve
+        require(reserve.debtBalance >= borrowAmount, "Not enough in reserve");
 
         // Transfer loaned amount to borrower
         ISuperToken(debt.tokenAddress).transfer(borrower, borrowAmount);
@@ -475,6 +478,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         // State updates
         vaults[borrower].debtAmount += borrowAmount;
         vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
+        reserve.debtBalance -= borrowAmount;
 
     }
 
@@ -508,6 +512,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         // Set profile to proper debt amount and interest flow rate
         vaults[borrower].debtAmount = newBorrowAmount; 
         vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
+        reserve.debtBalance = reserve.debtBalance - (newBorrowAmount - vaults[borrower].debtAmount) ;
 
     }
 
@@ -523,7 +528,10 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         // perform liquidation if the repay is not successful
         if (!repaySuccess) {
             liquidate(borrower);
-        } 
+        } else {
+            // if it was a success, increase reserve amount
+            reserve.debtBalance += vaults[borrower].debtAmount;
+        }
 
     }
 
