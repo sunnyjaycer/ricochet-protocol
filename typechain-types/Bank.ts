@@ -664,32 +664,32 @@ export interface Bank extends BaseContract {
     ): Promise<ContractTransaction>;
 
     afterAgreementCreated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
     afterAgreementTerminated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
     afterAgreementUpdated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
@@ -929,10 +929,11 @@ export interface Bank extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
         createdAt: BigNumber;
+        interestPaymentFlow: BigNumber;
       }
     >;
   };
@@ -954,32 +955,32 @@ export interface Bank extends BaseContract {
   ): Promise<ContractTransaction>;
 
   afterAgreementCreated(
-    arg0: string,
-    arg1: string,
+    _superToken: string,
+    _agreementClass: string,
     arg2: BytesLike,
-    arg3: BytesLike,
+    _agreementData: BytesLike,
     arg4: BytesLike,
-    arg5: BytesLike,
+    _ctx: BytesLike,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
   afterAgreementTerminated(
-    arg0: string,
-    arg1: string,
+    _superToken: string,
+    _agreementClass: string,
     arg2: BytesLike,
-    arg3: BytesLike,
+    _agreementData: BytesLike,
     arg4: BytesLike,
-    arg5: BytesLike,
+    _ctx: BytesLike,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
   afterAgreementUpdated(
-    arg0: string,
-    arg1: string,
+    _superToken: string,
+    _agreementClass: string,
     arg2: BytesLike,
-    arg3: BytesLike,
+    _agreementData: BytesLike,
     arg4: BytesLike,
-    arg5: BytesLike,
+    _ctx: BytesLike,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
@@ -1213,10 +1214,11 @@ export interface Bank extends BaseContract {
     arg0: string,
     overrides?: CallOverrides
   ): Promise<
-    [BigNumber, BigNumber, BigNumber] & {
+    [BigNumber, BigNumber, BigNumber, BigNumber] & {
       collateralAmount: BigNumber;
       debtAmount: BigNumber;
       createdAt: BigNumber;
+      interestPaymentFlow: BigNumber;
     }
   >;
 
@@ -1232,32 +1234,32 @@ export interface Bank extends BaseContract {
     addReporter(updater: string, overrides?: CallOverrides): Promise<void>;
 
     afterAgreementCreated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: CallOverrides
     ): Promise<string>;
 
     afterAgreementTerminated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: CallOverrides
     ): Promise<string>;
 
     afterAgreementUpdated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: CallOverrides
     ): Promise<string>;
 
@@ -1475,10 +1477,11 @@ export interface Bank extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
         createdAt: BigNumber;
+        interestPaymentFlow: BigNumber;
       }
     >;
   };
@@ -1593,32 +1596,32 @@ export interface Bank extends BaseContract {
     ): Promise<BigNumber>;
 
     afterAgreementCreated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
     afterAgreementTerminated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
     afterAgreementUpdated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
@@ -1868,32 +1871,32 @@ export interface Bank extends BaseContract {
     ): Promise<PopulatedTransaction>;
 
     afterAgreementCreated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;
 
     afterAgreementTerminated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;
 
     afterAgreementUpdated(
-      arg0: string,
-      arg1: string,
+      _superToken: string,
+      _agreementClass: string,
       arg2: BytesLike,
-      arg3: BytesLike,
+      _agreementData: BytesLike,
       arg4: BytesLike,
-      arg5: BytesLike,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;
 

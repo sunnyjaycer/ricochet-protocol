@@ -50,6 +50,7 @@ contract BankStorage {
         uint256 collateralAmount;
         uint256 debtAmount;
         uint256 createdAt;
+        int96 interestPaymentFlow;
     }
 
     struct SF {

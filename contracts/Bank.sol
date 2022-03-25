@@ -26,6 +26,10 @@ import {
     SuperAppBase
 } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
 
+import {
+    CFAv1Library
+} from "@superfluid-finance/ethereum-contracts/contracts/apps/CFAv1Library.sol";
+
 import "hardhat/console.sol";
 
 /**
@@ -268,7 +272,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
      * is charged a 10% fee which gets paid to the bankFactoryOwner
      * @param vaultOwner is the user the bank admins wants to liquidate
      */
-    function liquidate(address vaultOwner) external {
+    function liquidate(address vaultOwner) public {
         require(
             hasRole(KEEPER_ROLE, msg.sender) ||
                 hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
@@ -280,23 +284,30 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
                 reserve.collateralizationRatio * 100,
             "VAULT NOT UNDERCOLLATERALIZED"
         );
-        uint256 debtOwned = vaults[vaultOwner].debtAmount +
-            ((vaults[vaultOwner].debtAmount *
-                100 *
-                reserve.liquidationPenalty) /
-                100 /
-                100);
+        // add liquidation penalty to debt outstanding
+        uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount * 100 * reserve.liquidationPenalty) / 100 / 100);
+        // reframe the debt token quantity to collateral token quantity (because the collateral is getting slashed, need to know how much to take)
         uint256 collateralToLiquidate = (debtOwned * debt.price) /
             collateral.price;
 
+        // if the amount of collateral to liquidate is greater than the collateral actual available, set it as such
         if (collateralToLiquidate > vaults[vaultOwner].collateralAmount) {
             collateralToLiquidate = vaults[vaultOwner].collateralAmount;
         }
 
+        // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
         uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
+
+        // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
         reserve.collateralBalance += collateralToLiquidate - feeAmount;
+
+        // reduce the collateral possessed by the vault owner
         vaults[vaultOwner].collateralAmount -= collateralToLiquidate;
+
+        // forget outstanding debt
         vaults[vaultOwner].debtAmount = 0;
+
+        // transfer fee to bank
         IERC20(collateral.tokenAddress).safeTransfer(
             _bankFactoryOwner,
             feeAmount
@@ -436,6 +447,185 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         emit VaultWithdraw(msg.sender, amount);
     }
 
+    /**************************************************************************
+     * SuperApp callback hooks
+     *************************************************************************/
+
+    function _createFlow(bytes calldata _agreementData, bytes calldata _ctx) internal returns(bytes memory newCtx) {
+        newCtx = _ctx;
+
+        // get borrower from agreementData
+        (address borrower, ) = abi.decode(_agreementData, (address, address));
+
+        // get interest payment flow rate
+        (,int96 interestPaymentFlowRate,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), borrower, address(this));
+
+        // Borrow Amount = Annualized Flow rate / Simple APR
+        uint256 borrowAmount = ( ( uint(int(interestPaymentFlowRate)) * 31536000) * 10000 ) / reserve.interestRate;
+
+        // Check if enough minimum collateral expected for borrow amount
+        uint256 minimumCollateralExpected = ( ( vaults[borrower].debtAmount + borrowAmount ) * reserve.collateralizationRatio ) / 100;
+
+        // Collateral Amount greater than minimum collateral expected
+        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing too much");
+
+        // Transfer loaned amount to borrower
+        ISuperToken(debt.tokenAddress).transfer(borrower, borrowAmount);
+
+        // State updates
+        vaults[borrower].debtAmount += borrowAmount;
+        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
+
+    }
+
+    function _updateFlow(bytes calldata _agreementData, bytes calldata _ctx) internal returns(bytes memory newCtx) {
+        newCtx = _ctx;
+
+        // get borrower from agreementData
+        (address borrower, ) = abi.decode(_agreementData, (address, address));
+
+        // get interest payment flow rate
+        (,int96 interestPaymentFlowRate,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), borrower, address(this));
+ 
+        // Borrow Amount = Annualized Flow rate / Simple APR
+        uint256 newBorrowAmount = ( ( uint(int(interestPaymentFlowRate)) * 31536000) * 10000 ) / reserve.interestRate;
+
+        // Check if enough minimum collateral expected for borrow amount
+        uint256 minimumCollateralExpected = ( ( newBorrowAmount ) * reserve.collateralizationRatio ) / 100;
+
+        // Collateral Amount greater than minimum collateral expected
+        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing too much");
+
+        if (newBorrowAmount > vaults[borrower].debtAmount) {
+            // if new borrow amount is greater than current borrow amount, lend out more
+            ISuperToken(debt.tokenAddress).transfer(borrower, newBorrowAmount - vaults[borrower].debtAmount);
+        } else {
+            // if less, we expect partial repayment. Attain payment or revert due to not enough balance or spend allowance
+            bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount - newBorrowAmount);
+            require(repaySuccess, "Could not repay");
+        }   
+
+        // Set profile to proper debt amount and interest flow rate
+        vaults[borrower].debtAmount = newBorrowAmount; 
+        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
+
+    }
+
+    function _deleteFlow(bytes calldata _agreementData, bytes calldata _ctx) internal returns(bytes memory newCtx) {
+        newCtx = _ctx;
+
+        // get borrower from agreementData
+        (address borrower, ) = abi.decode(_agreementData, (address, address));
+
+        bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount);
+
+        // should probably add getting function checking that it is safe to stop stream
+        // perform liquidation if the repay is not successful
+        if (!repaySuccess) {
+            liquidate(borrower);
+        } 
+
+    }
+
+    /**************************************************************************
+     * SuperApp callbacks
+     *************************************************************************/
+
+    /**
+     * @dev Super App callback responding the creation of a CFA to the app
+     *
+     * Response logic in _createOutflow
+     */
+    function afterAgreementCreated(
+        ISuperToken _superToken,
+        address _agreementClass,
+        bytes32, // _agreementId,
+        bytes calldata _agreementData,
+        bytes calldata ,// _cbdata,
+        bytes calldata _ctx
+    )
+        external override
+        onlyExpected(_superToken, _agreementClass)
+        onlyHost
+        returns (bytes memory newCtx)
+    {
+     
+        return _createFlow(_agreementData, _ctx);
+    
+    }
+
+    /**
+     * @dev Super App callback responding to the update of a CFA to the app
+     * 
+     * Response logic in _updateOutflow
+     */
+    function afterAgreementUpdated(
+        ISuperToken _superToken,
+        address _agreementClass,
+        bytes32 ,//_agreementId,
+        bytes calldata _agreementData,
+        bytes calldata ,//_cbdata,
+        bytes calldata _ctx
+    )
+        external override
+        onlyExpected(_superToken, _agreementClass)
+        onlyHost
+        returns (bytes memory newCtx)
+    {
+        
+        return _updateFlow(_agreementData, _ctx);
+        
+    }
+
+    /**
+     * @dev Super App callback responding the ending of a CFA to the app
+     * 
+     * Response logic in _updateOutflow
+     */
+    function afterAgreementTerminated(
+        ISuperToken _superToken,
+        address _agreementClass,
+        bytes32 ,//_agreementId,
+        bytes calldata _agreementData,
+        bytes calldata ,//_cbdata,
+        bytes calldata _ctx
+    )
+        external override
+        onlyHost
+        returns (bytes memory newCtx)
+    {
+        // According to the app basic law, we should never revert in a termination callback
+        if (!_isValidToken(_superToken) || !_isCFAv1(_agreementClass)) return _ctx;
+
+        return _deleteFlow(_agreementData, _ctx);
+
+    }
+
+    function _isValidToken(ISuperToken superToken) private view returns (bool) {
+        return address(superToken) == debt.tokenAddress;
+    }
+
+    function _isCFAv1(address agreementClass) private view returns (bool) {
+        return ISuperAgreement(agreementClass).agreementType()
+            == keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1");
+    }
+
+    modifier onlyHost() {
+        require(msg.sender == address(superfluid.host), "RedirectAll: support only one host");
+        _;
+    }
+
+    modifier onlyExpected(ISuperToken superToken, address agreementClass) {
+        require(_isValidToken(superToken), "RedirectAll: not accepted token");
+        require(_isCFAv1(agreementClass), "RedirectAll: only CFAv1 supported");
+        _;
+    }
+
+
+    /**************************************************************************
+     * Getters & Setters
+     *************************************************************************/
+
     function getBankFactoryOwner() public view returns (address) {
         return _bankFactoryOwner;
     }
@@ -498,4 +688,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
     function revokeReporter(address oldUpdater) external {
         revokeRole(REPORTER_ROLE, oldUpdater);
     }
+
+
+
 }
