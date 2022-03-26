@@ -7,7 +7,7 @@ import { dtInstance2Abi } from "./artifacts/DAIABI.js"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { BigNumber } from 'ethers';
 
-import { Framework } from "@superfluid-finance/sdk-core";
+import { Framework, SuperToken } from "@superfluid-finance/sdk-core";
 import deployFramework from "@superfluid-finance/ethereum-contracts/scripts/deploy-framework.js";
 const deployTestToken = require("@superfluid-finance/ethereum-contracts/scripts/deploy-test-token");
 const deploySuperToken = require("@superfluid-finance/ethereum-contracts/scripts/deploy-super-token");
@@ -21,7 +21,7 @@ describe("Bank", function () {
   const BIGNUMBER_10000 = ethers.BigNumber.from(10000);
   const SECONDS_IN_A_YEAR = ethers.BigNumber.from(31536000);
 
-  const INTEREST_RATE = 1200; // 12%
+  const INTEREST_RATE = 200; // 2%
   const ORIGINATION_FEE = 100; // 1%
   const COLLATERALIZATION_RATIO = 150;
   const LIQUIDATION_PENALTY = 25;
@@ -30,7 +30,7 @@ describe("Bank", function () {
   const TELLOR_ORACLE_ADDRESS = '0xACC2d27400029904919ea54fFc0b18Bf07C57875';
   const TELLOR_REQUEST_ID = 60;
   let oracle;
-  const INITIAL_BALANCE = "10000";
+  const INITIAL_BALANCE = "20000";
   let depositAmount: BigNumber;
   let largeDepositAmount: BigNumber;
   let withdrawAmount;
@@ -56,7 +56,7 @@ describe("Bank", function () {
   let DT2;
   let ctInstance2: GLDToken;
   let dtInstance2: any;
-  let dtInstance2x: any;
+  let dtInstance2x: SuperToken;
   let bankInstance2: Bank;
   let bank2;
   let tp: TellorPlayground;
@@ -100,7 +100,7 @@ describe("Bank", function () {
     //// Set up collateral token
 
     CT2 = await ethers.getContractFactory("GLDToken");
-    ctInstance2 = await CT2.deploy(ethers.utils.parseUnits("20000"));  // JR
+    ctInstance2 = await CT2.deploy(ethers.utils.parseUnits("40000"));  // JR
     await ctInstance2.deployed();
 
     //// Set up debt token, both ERC20 and wrapped super token
@@ -139,7 +139,7 @@ describe("Bank", function () {
     await bankInstance2.connect(deployer).init(deployer.address, BANK_NAME, INTEREST_RATE, ORIGINATION_FEE,
       COLLATERALIZATION_RATIO, LIQUIDATION_PENALTY, PERIOD, randomUser6.address, TELLOR_ORACLE_ADDRESS);
     await bankInstance2.setCollateral(ctInstance2.address, 2, 1000, 1000);
-    await bankInstance2.setDebt(dtInstance2.address, 1, 1000, 1000);
+    await bankInstance2.setDebt(dtInstance2x.address, 1, 1000, 1000);
     depositAmount = ethers.utils.parseUnits("100");
     largeDepositAmount = ethers.utils.parseUnits("5000");
     withdrawAmount = ethers.utils.parseUnits("50");
@@ -731,31 +731,86 @@ describe("Bank", function () {
   it('SF happy path', async function () {
 
     // approve DTx to transfer DT
-    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
+    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+    await dtInstance2.connect(deployer).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
 
-    // user2 upgrades 100 tokens
+    // user2 and admin upgrade 20000 tokens
     const dtUpgradeOperation = dtInstance2x.upgrade({
-        amount: ethers.utils.parseEther("10000")
+        amount: ethers.utils.parseEther("20000").toString()
     });
     await dtUpgradeOperation.exec(randomUser2);
+    await dtUpgradeOperation.exec(deployer);
 
-    await checkTokenBalances([randomUser2], ["User 2"]);
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
-    // Transfer 10,000 dtInstance2x to bank
-    // await dtInstance2x.connect(randomUser2).transfer(randomUser2.address, ethers.utils.parseEther("10000"));
-    const dtxTransferOperation = dtInstance2x.transfer({
-      _to: bankInstance2.address,
-      _value: ethers.utils.parseEther("10000")
+    // Admin and user approves bank to spend debt super token for reserve deposit and repayment respectively
+    const dtxApproveOperation = dtInstance2x.approve({
+      receiver: bankInstance2.address,
+      amount: ethers.utils.parseEther("10000000000000000000000000000000000000").toString()
     });
-    await dtxTransferOperation.exec(randomUser2);
+    await dtxApproveOperation.exec(deployer);
+    await dtxApproveOperation.exec(randomUser2);
 
-    await checkTokenBalances([randomUser2], ["User 2"]);
+    // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+    await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+
+    // User approves spending of collateral token and debt token by bank contract
+    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
 
     // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+    await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
     // User starts stream of 20 dtInstance2x/year to bank
+    await ( await sf.cfaV1.createFlow({
+      receiver: bankInstance2.address,
+      superToken: dtInstance2x.address,
+      flowRate: "634195839675",
+    }) ).exec( randomUser2 );
+
+    await getNetflowForEntities([randomUser2], ["User 2"]);
+
+    // Check balance of dtx in borrower
+    console.log("1000 Borrow Amount should be reflected");
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+
+    // Update stream to 10 dtInstance2x/year (repay 500 in debt)
+    await ( await sf.cfaV1.updateFlow({
+      receiver: bankInstance2.address,
+      superToken: dtInstance2x.address,
+      flowRate: "317097919837",
+    }) ).exec( randomUser2 );
 
     // Check balance of dtx in borrower and bank
+    console.log("500 repay should be reflected");
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+
+    // Update stream to 40 dtInstance2x/year (borrow additional 1500)
+    await ( await sf.cfaV1.updateFlow({
+      receiver: bankInstance2.address,
+      superToken: dtInstance2x.address,
+      flowRate: "1268391679350",
+    }) ).exec( randomUser2 );
+
+    // Check balance of dtx in borrower and bank
+    console.log("1500 extra borrow should be reflected");
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+
+    // Delte stream (repay of 1500 in debt)
+    await ( await sf.cfaV1.deleteFlow({
+      sender: randomUser2.address,
+      receiver: bankInstance2.address,
+      by: randomUser2.address,
+      superToken: dtInstance2x.address,
+    }) ).exec( randomUser2 );
+
+    // Check balance of dtx in borrower and bank
+    console.log("Total repay should be reflected");
+    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
   });
 
