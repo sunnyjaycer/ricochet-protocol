@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 pragma abicoder v2;
 
+import "hardhat/console.sol";
+
 import "./BankStorage.sol";
 import "./tellor/ITellor.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -43,6 +45,9 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
 
     address private _bankFactoryOwner;
 
+    using CFAv1Library for CFAv1Library.InitData;
+    CFAv1Library.InitData public cfaV1; //initialize cfaV1 variable
+
     /*Events*/
     event ReserveDeposit(uint256 amount);
     event ReserveWithdraw(address indexed token, uint256 amount);
@@ -72,6 +77,17 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
             SuperAppDefinitions.BEFORE_AGREEMENT_CREATED_NOOP |
             SuperAppDefinitions.BEFORE_AGREEMENT_UPDATED_NOOP |
             SuperAppDefinitions.BEFORE_AGREEMENT_TERMINATED_NOOP;
+
+        //initialize InitData struct, and set equal to cfaV1
+        cfaV1 = CFAv1Library.InitData(
+        host,
+        //here, we are deriving the address of the CFA using the host contract
+        IConstantFlowAgreementV1(
+            address(host.getAgreementClass(
+                    keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")
+                ))
+            )
+        );
 
         // _scp.host.registerApp(configWord);
         if(bytes(registrationKey).length > 0) {
@@ -122,11 +138,9 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         //set up as admin / owner
         _setupRole(DEFAULT_ADMIN_ROLE, creator);
         reserve.interestRate = interestRate;
-        reserve.originationFee = originationFee;
         reserve.collateralizationRatio = collateralizationRatio;
         reserve.oracleContract = oracleContract;
         reserve.liquidationPenalty = liquidationPenalty;
-        reserve.period = period;
         _bankFactoryOwner = bankFactoryOwner;
         name = bankName;
     }
@@ -332,96 +346,6 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
     }
 
     /**
-     * @dev Use this function to allow users to borrow against their collateral
-     * @param amount to borrow
-     */
-    // Super App Modification Notes
-    // 
-    function vaultBorrow(uint256 amount) external {
-        // get current debt of borrower and update the vault debt amount
-        // if it's currently zero, then the borrower hasn't taken out a loan there's going to be nothing, so no need to update
-        if (vaults[msg.sender].debtAmount != 0) {
-            vaults[msg.sender].debtAmount = getVaultRepayAmount();
-        }
-        // ( collateral value / debt price ) -> reframes value of collateral to debt token quantity based on value of collateral
-        // / collat ratio -> collat ratio is (collat value/debt value), dividing gives us the max portion of the collateral value that can be borrowed
-        uint256 maxBorrow = ((vaults[msg.sender].collateralAmount *
-            collateral.price) /
-            debt.price /
-            reserve.collateralizationRatio) * 100;
-        // reframe max borrow amount to debt token granularity
-        maxBorrow *= debt.priceGranularity;
-        maxBorrow /= collateral.priceGranularity;
-        // subtract maxBorrow by how much the borrower has already borrowed
-        maxBorrow -= vaults[msg.sender].debtAmount;
-        // increase amount borrowed by borrow amount + origination fee
-        vaults[msg.sender].debtAmount +=
-            amount +
-            ((amount * reserve.originationFee) / 10000);
-        // if amount borrowed is greater than max permitted, then revert
-        require(
-            vaults[msg.sender].debtAmount < maxBorrow,
-            "NOT ENOUGH COLLATERAL"
-        );
-        // if amount borrowed is greater than tokens available in reserve, then revert
-        require(
-            amount <= IERC20(debt.tokenAddress).balanceOf(address(this)),
-            "NOT ENOUGH RESERVES"
-        );
-        // // if more than a interest accruement period has passed, since vault creation, then reset createdAt to current time
-        // // if this is first time borrowing (making a vault), it will obviously set createdAt
-        // // the reason this wants to update with each repayment is because it affects the interest calculation
-        // if (block.timestamp - vaults[msg.sender].createdAt > reserve.period) {
-        //     // Only adjust if more than 1 interest rate period has past
-        //     vaults[msg.sender].createdAt = block.timestamp;
-        // }
-
-        // reseting to always be block.timestamp because we need real-time accounting for superfluid
-        vaults[msg.sender].createdAt = block.timestamp;
-
-        // reduce balance of reserve
-        reserve.debtBalance -= amount;
-        // provide borrower with debt tokens
-        IERC20(debt.tokenAddress).safeTransfer(msg.sender, amount);
-        emit VaultBorrow(msg.sender, amount);
-    }
-
-    /**
-     * @dev This function allows users to pay the interest and origination fee to the
-     *  vault before being able to withdraw
-     * @param amount owed
-     */
-    function vaultRepay(uint256 amount) external {
-        require(amount > 0, "Amount is zero !!");
-        // get debt amount with accrued interest
-        vaults[msg.sender].debtAmount = getVaultRepayAmount();
-        require(
-            amount <= vaults[msg.sender].debtAmount,
-            "CANNOT REPAY MORE THAN OWED"
-        );
-        // reduce the debt amount in storage
-        vaults[msg.sender].debtAmount -= amount;
-        // increase the reserve balance by repayment amount
-        reserve.debtBalance += amount;
-        
-        // // see how many period elabsed since creation of vault
-        // uint256 periodsElapsed = (block.timestamp / reserve.period) -
-        //     (vaults[msg.sender].createdAt / reserve.period);
-        // // increase vault creation period number by number of periods elapsed since original vault creation
-        // vaults[msg.sender].createdAt += periodsElapsed * reserve.period;
-
-        // reseting to always be block.timestamp because we need real-time accounting for superfluid
-        vaults[msg.sender].createdAt = block.timestamp;
-
-        IERC20(debt.tokenAddress).safeTransferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
-        emit VaultRepay(msg.sender, amount);
-    }
-
-    /**
      * @dev Allows users to withdraw their collateral from the vault
      * @param amount withdrawn
      */
@@ -475,9 +399,17 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         // Transfer loaned amount to borrower
         ISuperToken(debt.tokenAddress).transfer(borrower, borrowAmount);
 
+        // Start adjunct stream to owner
+        (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
+        if (currentOwnerFlow == 0) {
+            newCtx = cfaV1.createFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), interestPaymentFlowRate);
+        } else {
+            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), currentOwnerFlow + interestPaymentFlowRate);
+        }
+
         // State updates
         vaults[borrower].debtAmount += borrowAmount;
-        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
+        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate; // might be unnecesary
         reserve.debtBalance -= borrowAmount;
 
     }
@@ -506,8 +438,12 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         } else {
             // if less, we expect partial repayment. Attain payment or revert due to not enough balance or spend allowance
             bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount - newBorrowAmount);
-            require(repaySuccess, "Could not repay");
+            require(repaySuccess, "Could not repay - insufficient approval or balance");
         }   
+
+        // Start adjunct stream to owner (current + interest flow delta)
+        (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
+        newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), currentOwnerFlow + (interestPaymentFlowRate - vaults[borrower].interestPaymentFlow));
 
         // Set profile to proper debt amount and interest flow rate
         vaults[borrower].debtAmount = newBorrowAmount; 
@@ -532,6 +468,16 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
             // if it was a success, increase reserve amount
             reserve.debtBalance += vaults[borrower].debtAmount;
         }
+
+        // reduce stream to owner
+        (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
+        if (currentOwnerFlow - vaults[borrower].interestPaymentFlow == 0) {
+            newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
+        } else {
+            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), currentOwnerFlow - vaults[borrower].interestPaymentFlow );
+        }
+
+        delete vaults[borrower];
 
     }
 

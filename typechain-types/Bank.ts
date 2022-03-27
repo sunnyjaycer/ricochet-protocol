@@ -31,6 +31,7 @@ export interface BankInterface extends utils.Interface {
     "beforeAgreementCreated(address,address,bytes32,bytes,bytes)": FunctionFragment;
     "beforeAgreementTerminated(address,address,bytes32,bytes,bytes)": FunctionFragment;
     "beforeAgreementUpdated(address,address,bytes32,bytes,bytes)": FunctionFragment;
+    "cfaV1()": FunctionFragment;
     "getBankFactoryOwner()": FunctionFragment;
     "getCollateralTokenAddress()": FunctionFragment;
     "getCollateralTokenLastUpdatedAt()": FunctionFragment;
@@ -54,6 +55,7 @@ export interface BankInterface extends utils.Interface {
     "getVaultCollateralAmount()": FunctionFragment;
     "getVaultCollateralizationRatio(address)": FunctionFragment;
     "getVaultDebtAmount()": FunctionFragment;
+    "getVaultInterestPaymentFlowAmount()": FunctionFragment;
     "getVaultRepayAmount()": FunctionFragment;
     "grantRole(bytes32,address)": FunctionFragment;
     "hasRole(bytes32,address)": FunctionFragment;
@@ -74,9 +76,7 @@ export interface BankInterface extends utils.Interface {
     "transferOwnership(address)": FunctionFragment;
     "updateCollateralPrice()": FunctionFragment;
     "updateDebtPrice()": FunctionFragment;
-    "vaultBorrow(uint256)": FunctionFragment;
     "vaultDeposit(uint256)": FunctionFragment;
-    "vaultRepay(uint256)": FunctionFragment;
     "vaultWithdraw(uint256)": FunctionFragment;
     "vaults(address)": FunctionFragment;
   };
@@ -119,6 +119,7 @@ export interface BankInterface extends utils.Interface {
     functionFragment: "beforeAgreementUpdated",
     values: [string, string, BytesLike, BytesLike, BytesLike]
   ): string;
+  encodeFunctionData(functionFragment: "cfaV1", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "getBankFactoryOwner",
     values?: undefined
@@ -209,6 +210,10 @@ export interface BankInterface extends utils.Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "getVaultInterestPaymentFlowAmount",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "getVaultRepayAmount",
     values?: undefined
   ): string;
@@ -293,15 +298,7 @@ export interface BankInterface extends utils.Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
-    functionFragment: "vaultBorrow",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
     functionFragment: "vaultDeposit",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "vaultRepay",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
@@ -351,6 +348,7 @@ export interface BankInterface extends utils.Interface {
     functionFragment: "beforeAgreementUpdated",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "cfaV1", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "getBankFactoryOwner",
     data: BytesLike
@@ -441,6 +439,10 @@ export interface BankInterface extends utils.Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "getVaultInterestPaymentFlowAmount",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "getVaultRepayAmount",
     data: BytesLike
   ): Result;
@@ -500,14 +502,9 @@ export interface BankInterface extends utils.Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
-    functionFragment: "vaultBorrow",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
     functionFragment: "vaultDeposit",
     data: BytesLike
   ): Result;
-  decodeFunctionResult(functionFragment: "vaultRepay", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "vaultWithdraw",
     data: BytesLike
@@ -720,6 +717,10 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<[string]>;
 
+    cfaV1(
+      overrides?: CallOverrides
+    ): Promise<[string, string] & { host: string; cfa: string }>;
+
     getBankFactoryOwner(overrides?: CallOverrides): Promise<[string]>;
 
     getCollateralTokenAddress(overrides?: CallOverrides): Promise<[string]>;
@@ -792,6 +793,10 @@ export interface Bank extends BaseContract {
     ): Promise<[BigNumber]>;
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<[BigNumber]>;
+
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<[BigNumber]>;
 
     getVaultRepayAmount(
       overrides?: CallOverrides
@@ -905,17 +910,7 @@ export interface Bank extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
-    vaultBorrow(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<ContractTransaction>;
-
     vaultDeposit(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<ContractTransaction>;
-
-    vaultRepay(
       amount: BigNumberish,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
@@ -1011,6 +1006,10 @@ export interface Bank extends BaseContract {
     overrides?: CallOverrides
   ): Promise<string>;
 
+  cfaV1(
+    overrides?: CallOverrides
+  ): Promise<[string, string] & { host: string; cfa: string }>;
+
   getBankFactoryOwner(overrides?: CallOverrides): Promise<string>;
 
   getCollateralTokenAddress(overrides?: CallOverrides): Promise<string>;
@@ -1079,6 +1078,10 @@ export interface Bank extends BaseContract {
   ): Promise<BigNumber>;
 
   getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
+
+  getVaultInterestPaymentFlowAmount(
+    overrides?: CallOverrides
+  ): Promise<BigNumber>;
 
   getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
@@ -1190,17 +1193,7 @@ export interface Bank extends BaseContract {
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
-  vaultBorrow(
-    amount: BigNumberish,
-    overrides?: Overrides & { from?: string | Promise<string> }
-  ): Promise<ContractTransaction>;
-
   vaultDeposit(
-    amount: BigNumberish,
-    overrides?: Overrides & { from?: string | Promise<string> }
-  ): Promise<ContractTransaction>;
-
-  vaultRepay(
     amount: BigNumberish,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
@@ -1290,6 +1283,10 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<string>;
 
+    cfaV1(
+      overrides?: CallOverrides
+    ): Promise<[string, string] & { host: string; cfa: string }>;
+
     getBankFactoryOwner(overrides?: CallOverrides): Promise<string>;
 
     getCollateralTokenAddress(overrides?: CallOverrides): Promise<string>;
@@ -1358,6 +1355,10 @@ export interface Bank extends BaseContract {
     ): Promise<BigNumber>;
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
+
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
 
     getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
@@ -1459,14 +1460,10 @@ export interface Bank extends BaseContract {
 
     updateDebtPrice(overrides?: CallOverrides): Promise<void>;
 
-    vaultBorrow(amount: BigNumberish, overrides?: CallOverrides): Promise<void>;
-
     vaultDeposit(
       amount: BigNumberish,
       overrides?: CallOverrides
     ): Promise<void>;
-
-    vaultRepay(amount: BigNumberish, overrides?: CallOverrides): Promise<void>;
 
     vaultWithdraw(
       amount: BigNumberish,
@@ -1652,6 +1649,8 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<BigNumber>;
 
+    cfaV1(overrides?: CallOverrides): Promise<BigNumber>;
+
     getBankFactoryOwner(overrides?: CallOverrides): Promise<BigNumber>;
 
     getCollateralTokenAddress(overrides?: CallOverrides): Promise<BigNumber>;
@@ -1717,6 +1716,10 @@ export interface Bank extends BaseContract {
     ): Promise<BigNumber>;
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
+
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
 
     getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
@@ -1828,17 +1831,7 @@ export interface Bank extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
-    vaultBorrow(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<BigNumber>;
-
     vaultDeposit(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<BigNumber>;
-
-    vaultRepay(
       amount: BigNumberish,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
@@ -1927,6 +1920,8 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 
+    cfaV1(overrides?: CallOverrides): Promise<PopulatedTransaction>;
+
     getBankFactoryOwner(
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
@@ -2012,6 +2007,10 @@ export interface Bank extends BaseContract {
     ): Promise<PopulatedTransaction>;
 
     getVaultDebtAmount(
+      overrides?: CallOverrides
+    ): Promise<PopulatedTransaction>;
+
+    getVaultInterestPaymentFlowAmount(
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 
@@ -2127,17 +2126,7 @@ export interface Bank extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;
 
-    vaultBorrow(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<PopulatedTransaction>;
-
     vaultDeposit(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<PopulatedTransaction>;
-
-    vaultRepay(
       amount: BigNumberish,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;

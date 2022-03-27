@@ -37,6 +37,7 @@ export interface BankStorageInterface extends utils.Interface {
     "getVaultCollateralAmount()": FunctionFragment;
     "getVaultCollateralizationRatio(address)": FunctionFragment;
     "getVaultDebtAmount()": FunctionFragment;
+    "getVaultInterestPaymentFlowAmount()": FunctionFragment;
     "getVaultRepayAmount()": FunctionFragment;
     "vaults(address)": FunctionFragment;
   };
@@ -116,6 +117,10 @@ export interface BankStorageInterface extends utils.Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "getVaultDebtAmount",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "getVaultInterestPaymentFlowAmount",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -199,6 +204,10 @@ export interface BankStorageInterface extends utils.Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "getVaultDebtAmount",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "getVaultInterestPaymentFlowAmount",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -289,6 +298,10 @@ export interface BankStorage extends BaseContract {
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<[BigNumber]>;
 
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<[BigNumber]>;
+
     getVaultRepayAmount(
       overrides?: CallOverrides
     ): Promise<[BigNumber] & { principal: BigNumber }>;
@@ -353,6 +366,10 @@ export interface BankStorage extends BaseContract {
 
   getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
+  getVaultInterestPaymentFlowAmount(
+    overrides?: CallOverrides
+  ): Promise<BigNumber>;
+
   getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
   vaults(
@@ -414,6 +431,10 @@ export interface BankStorage extends BaseContract {
     ): Promise<BigNumber>;
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
+
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
 
     getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
@@ -479,6 +500,10 @@ export interface BankStorage extends BaseContract {
     ): Promise<BigNumber>;
 
     getVaultDebtAmount(overrides?: CallOverrides): Promise<BigNumber>;
+
+    getVaultInterestPaymentFlowAmount(
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
 
     getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
@@ -550,6 +575,10 @@ export interface BankStorage extends BaseContract {
     ): Promise<PopulatedTransaction>;
 
     getVaultDebtAmount(
+      overrides?: CallOverrides
+    ): Promise<PopulatedTransaction>;
+
+    getVaultInterestPaymentFlowAmount(
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 

@@ -19,7 +19,7 @@ import {
  */
 contract BankStorage {
     /*Variables*/
-    address _owner;     // JR
+    address _owner;
     string name;
     // role identifier for keeper that can make liquidations
     bytes32 public constant KEEPER_ROLE = keccak256("KEEPER_ROLE");
@@ -203,38 +203,15 @@ contract BankStorage {
     function getVaultDebtAmount() public view returns (uint256) {
         return vaults[msg.sender].debtAmount;
     }
-
-    // /**
-    //  * @dev Getter function for the user's vault debt amount
-    //  *   uses a simple interest formula (i.e. not compound  interest)
-    //  * @return principal debt amount
-    //  */
-    // function getVaultRepayAmount() public view returns (uint256 principal) {
-
-    //     // Alternative Continuous Simple Interest Implementation
-    //     // get rid of reserve period and just use seconds
-    //     // additional interest = seconds elapsed since borrow * ( (principal * annual interest rate) / seconds in a year )
-
-    //     // get initial debt amount (how much as borrowed + origination fee)
-    //     principal = vaults[msg.sender].debtAmount;
-    //     // how many periods for adding interest are there per year
-    //     // so if the period is 1 day, then you have 365 periods per year
-    //     uint256 periodsPerYear = 365 days / reserve.period;
-    //     // how many periods have elapsed since the creation of the vault
-    //     // current period number - period of creation
-    //     uint256 periodsElapsed = (block.timestamp / reserve.period) -
-    //         (vaults[msg.sender].createdAt / reserve.period);
-    //     // interest rate is provided in an annual format
-    //     // get show how much interest would have accrued over the whole year
-    //     //      ( (principal * reserve.interestRate) / 10000 )
-    //     // divide it down to interest paid per day
-    //     //      / periodsPerYear
-    //     // multiply by periodsElapsed to get how much interest has accrued in total
-    //     principal +=
-    //         ( ( (principal * reserve.interestRate) / 10000 ) / periodsPerYear) *
-    //         periodsElapsed;
-    // }
     
+    /**
+     * @dev Getter function for the user's vault interest payment flow rate
+     * @return flow rate
+     */
+    function getVaultInterestPaymentFlowAmount() public view returns (int96) {
+        return vaults[msg.sender].interestPaymentFlow;
+    }
+
     /**
      * @dev Getter function for the user's vault debt amount
      *   uses a simple interest formula (i.e. not compound  interest)

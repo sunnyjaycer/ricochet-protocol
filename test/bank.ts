@@ -48,6 +48,7 @@ describe("Bank", function () {
   let randomUser7: SignerWithAddress;
   let randomUser8: SignerWithAddress;
   let randomUser9: SignerWithAddress;
+  let user_directory: { [key: string]: string } = {};
 
   let sf: any;
   let superSigner: any;
@@ -70,6 +71,18 @@ describe("Bank", function () {
     // get signers
     [deployer, randomUser, randomUser2, randomUser3, randomUser4, randomUser5, randomUser6,
       randomUser7, randomUser8, randomUser9] = await ethers.getSigners();
+    user_directory[deployer.address] = "Admin";
+    user_directory[randomUser.address] = "randomUser";
+    user_directory[randomUser2.address] = "randomUser2";
+    user_directory[randomUser3.address] = "randomUser3";
+    user_directory[randomUser4.address] = "randomUser4";
+    user_directory[randomUser5.address] = "randomUser5";
+    user_directory[randomUser6.address] = "randomUser6";
+    user_directory[randomUser7.address] = "randomUser7";
+    user_directory[randomUser8.address] = "randomUser8";
+    user_directory[randomUser9.address] = "randomUser9";
+
+
 
     // Deploy SF Framework
     await deployFramework(
@@ -194,6 +207,26 @@ describe("Bank", function () {
       console.log(name[i], "Net Flow Rate: ", flowRate);
     }
     console.log("==========================\n");
+  }
+
+  async function logFlows(user:SignerWithAddress[]) {
+    console.log("========== Flow Rates =========="); 
+    for (let i = 0; i < user.length; ++i) {
+      const userFlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: user[i].address,
+        providerOrSigner: superSigner
+      });
+      console.log(user_directory[ user[i].address ], "Net Flow Rate:\t", userFlowRate);
+    }
+    const bankFlowRate = await sf.cfaV1.getFlow({
+      superToken: dtInstance2x.address,
+      sender: bankInstance2.address,
+      receiver: randomUser6.address,
+      providerOrSigner: superSigner
+    });
+    console.log("Bank Revenue Flow Rate:\t", bankFlowRate.flowRate );
+    console.log("====================================\n");
   }
 
   xit('should create bank with correct parameters', async function () {
@@ -683,52 +716,7 @@ describe("Bank", function () {
     await expect(bankInstance2.connect(randomUser4).updateDebtPrice()).to.be.revertedWith("not price updater or admin");
   });
 
-  xit('Superfluid experimenting', async function () { 
-
-    // approve DTx to transfer DT
-    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
-
-    // user2 upgrades 100 tokens
-    const dtUpgradeOperation = dtInstance2x.upgrade({
-        amount: ethers.utils.parseEther("1000")
-    });
-
-    await dtUpgradeOperation.exec(randomUser2);
-
-    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
-
-    // user2 starts stream to superapp
-    await ( await sf.cfaV1.createFlow({
-      receiver: deployer.address,
-      superToken: dtInstance2x.address,
-      flowRate: "100000000",
-    }) ).exec( randomUser2 );
-
-    // // show stream rates
-    // const user2FlowRate = await sf.cfaV1.getNetFlow({
-    //   superToken: dtInstance2x.address,
-    //   account: randomUser2.address,
-    //   providerOrSigner: superSigner
-    // });
-
-    // console.log("user2FlowRate:", user2FlowRate);
-
-    // // show stream rates
-    // const deployerFlowRate = await sf.cfaV1.getNetFlow({
-    //   superToken: dtInstance2x.address,
-    //   account: randomUser2.address,
-    //   providerOrSigner: superSigner
-    // });
-
-    // console.log("deployerFlowRate:", deployerFlowRate);
-
-    await getNetflowForEntities([randomUser2, deployer], ["User 2","Admin"])
-
-    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
-
-  });
-
-  it('SF happy path', async function () {
+  xit('SF happy path', async function () {
 
     // approve DTx to transfer DT
     await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
@@ -765,6 +753,7 @@ describe("Bank", function () {
 
     await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
+    console.log("Starting off with borrow:")
     // User starts stream of 20 dtInstance2x/year to bank
     await ( await sf.cfaV1.createFlow({
       receiver: bankInstance2.address,
@@ -772,11 +761,11 @@ describe("Bank", function () {
       flowRate: "634195839675",
     }) ).exec( randomUser2 );
 
-    await getNetflowForEntities([randomUser2], ["User 2"]);
 
     // Check balance of dtx in borrower
     console.log("1000 Borrow Amount should be reflected");
     await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logFlows([deployer,randomUser2]);
 
     // Update stream to 10 dtInstance2x/year (repay 500 in debt)
     await ( await sf.cfaV1.updateFlow({
@@ -788,6 +777,7 @@ describe("Bank", function () {
     // Check balance of dtx in borrower and bank
     console.log("500 repay should be reflected");
     await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logFlows([deployer,randomUser2]);
 
     // Update stream to 40 dtInstance2x/year (borrow additional 1500)
     await ( await sf.cfaV1.updateFlow({
@@ -799,6 +789,8 @@ describe("Bank", function () {
     // Check balance of dtx in borrower and bank
     console.log("1500 extra borrow should be reflected");
     await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logFlows([deployer,randomUser2]);
+
 
     // Delte stream (repay of 1500 in debt)
     await ( await sf.cfaV1.deleteFlow({
@@ -811,6 +803,106 @@ describe("Bank", function () {
     // Check balance of dtx in borrower and bank
     console.log("Total repay should be reflected");
     await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logFlows([deployer,randomUser2]);
+
+  });
+
+  describe('Callback Specific Testing', async function () {
+    beforeEach(async function () {
+
+      // approve DTx to transfer DT
+      await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await dtInstance2.connect(deployer).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+
+      // user2 and admin upgrade 20000 tokens
+      const dtUpgradeOperation = dtInstance2x.upgrade({
+        amount: ethers.utils.parseEther("20000").toString()
+      });
+      await dtUpgradeOperation.exec(randomUser2);
+      await dtUpgradeOperation.exec(deployer);
+
+    });
+
+    context("Pre-checks", function () {
+
+      it("should not be able to borrow with no collateral")
+
+    })
+
+    context("create checks", function () {
+
+      it("should not be able to borrow when no reserves are available")
+
+      it("should be able to borrow correct amount")
+        // correct balance changes
+        // correct flow rate changes
+        // correct reserve balance changes
+        // correct debt changes
+
+    })
+
+    context("update repay checks", function () {
+
+      beforeEach( async function () {
+
+        // reserve deposit
+        // start a borrow flow
+        
+      })
+
+      it("should not be able to repay if not enough balance")
+
+      it("should not be able to repay if not enough allowance")
+
+      it("should be able to repay proper amounts")
+        // correct balance changes
+        // correct flow rate changes
+        // correct reserve balance changes
+        // correct debt changes
+
+    })
+
+    context("update borrow checks", function () {
+
+      beforeEach( async function () {
+
+        // reserve deposit
+        // start a borrow flow
+        
+      })
+
+      it("should not be able to borrow more if not enough reserves")
+
+      it("should not be able to repay if not enough collateral")
+
+      it("should be able to borrow proper amounts")
+        // correct balance changes
+        // correct flow rate changes
+        // correct reserve balance changes
+        // correct debt changes
+
+    })
+
+    context("delete checks", function () {
+
+      beforeEach( async function () {
+
+        // reserve deposit
+        // start a borrow flow
+        
+      })
+
+      it("should face liquidation if not enough allowance")
+
+      it("should face liquidation if not enough balance")
+
+      it("should be able to repay proper amounts")
+        // correct balance changes
+        // correct flow rate changes
+        // correct reserve balance changes
+        // correct debt changes
+
+    });
 
   });
 

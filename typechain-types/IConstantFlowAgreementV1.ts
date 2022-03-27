@@ -30,6 +30,8 @@ export interface IConstantFlowAgreementV1Interface extends utils.Interface {
     "getMaximumFlowRateFromDeposit(address,uint256)": FunctionFragment;
     "getNetFlow(address,address)": FunctionFragment;
     "initialize()": FunctionFragment;
+    "isPatricianPeriod(address,address,uint256)": FunctionFragment;
+    "isPatricianPeriodNow(address,address)": FunctionFragment;
     "realtimeBalanceOf(address,address,uint256)": FunctionFragment;
     "updateFlow(address,address,int96,bytes)": FunctionFragment;
   };
@@ -75,6 +77,14 @@ export interface IConstantFlowAgreementV1Interface extends utils.Interface {
     values?: undefined
   ): string;
   encodeFunctionData(
+    functionFragment: "isPatricianPeriod",
+    values: [string, string, BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "isPatricianPeriodNow",
+    values: [string, string]
+  ): string;
+  encodeFunctionData(
     functionFragment: "realtimeBalanceOf",
     values: [string, string, BigNumberish]
   ): string;
@@ -108,6 +118,14 @@ export interface IConstantFlowAgreementV1Interface extends utils.Interface {
   ): Result;
   decodeFunctionResult(functionFragment: "getNetFlow", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "initialize", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "isPatricianPeriod",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "isPatricianPeriodNow",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(
     functionFragment: "realtimeBalanceOf",
     data: BytesLike
@@ -244,6 +262,24 @@ export interface IConstantFlowAgreementV1 extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
+    isPatricianPeriod(
+      token: string,
+      account: string,
+      timestamp: BigNumberish,
+      overrides?: CallOverrides
+    ): Promise<[boolean] & { isPatricianPeriod: boolean }>;
+
+    isPatricianPeriodNow(
+      token: string,
+      account: string,
+      overrides?: CallOverrides
+    ): Promise<
+      [boolean, BigNumber] & {
+        isPatricianPeriod: boolean;
+        timestamp: BigNumber;
+      }
+    >;
+
     realtimeBalanceOf(
       token: string,
       account: string,
@@ -346,6 +382,21 @@ export interface IConstantFlowAgreementV1 extends BaseContract {
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
+  isPatricianPeriod(
+    token: string,
+    account: string,
+    timestamp: BigNumberish,
+    overrides?: CallOverrides
+  ): Promise<boolean>;
+
+  isPatricianPeriodNow(
+    token: string,
+    account: string,
+    overrides?: CallOverrides
+  ): Promise<
+    [boolean, BigNumber] & { isPatricianPeriod: boolean; timestamp: BigNumber }
+  >;
+
   realtimeBalanceOf(
     token: string,
     account: string,
@@ -445,6 +496,24 @@ export interface IConstantFlowAgreementV1 extends BaseContract {
     ): Promise<BigNumber>;
 
     initialize(overrides?: CallOverrides): Promise<void>;
+
+    isPatricianPeriod(
+      token: string,
+      account: string,
+      timestamp: BigNumberish,
+      overrides?: CallOverrides
+    ): Promise<boolean>;
+
+    isPatricianPeriodNow(
+      token: string,
+      account: string,
+      overrides?: CallOverrides
+    ): Promise<
+      [boolean, BigNumber] & {
+        isPatricianPeriod: boolean;
+        timestamp: BigNumber;
+      }
+    >;
 
     realtimeBalanceOf(
       token: string,
@@ -549,6 +618,19 @@ export interface IConstantFlowAgreementV1 extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
+    isPatricianPeriod(
+      token: string,
+      account: string,
+      timestamp: BigNumberish,
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
+
+    isPatricianPeriodNow(
+      token: string,
+      account: string,
+      overrides?: CallOverrides
+    ): Promise<BigNumber>;
+
     realtimeBalanceOf(
       token: string,
       account: string,
@@ -623,6 +705,19 @@ export interface IConstantFlowAgreementV1 extends BaseContract {
 
     initialize(
       overrides?: Overrides & { from?: string | Promise<string> }
+    ): Promise<PopulatedTransaction>;
+
+    isPatricianPeriod(
+      token: string,
+      account: string,
+      timestamp: BigNumberish,
+      overrides?: CallOverrides
+    ): Promise<PopulatedTransaction>;
+
+    isPatricianPeriodNow(
+      token: string,
+      account: string,
+      overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 
     realtimeBalanceOf(

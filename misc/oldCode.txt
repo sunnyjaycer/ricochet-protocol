@@ -1,0 +1,173 @@
+    /**
+     * @dev Use this function to allow users to borrow against their collateral
+     * @param amount to borrow
+     */
+    // Super App Modification Notes
+    // 
+    function vaultBorrow(uint256 amount) external {
+        // get current debt of borrower and update the vault debt amount
+        // if it's currently zero, then the borrower hasn't taken out a loan there's going to be nothing, so no need to update
+        if (vaults[msg.sender].debtAmount != 0) {
+            vaults[msg.sender].debtAmount = getVaultRepayAmount();
+        }
+        // ( collateral value / debt price ) -> reframes value of collateral to debt token quantity based on value of collateral
+        // / collat ratio -> collat ratio is (collat value/debt value), dividing gives us the max portion of the collateral value that can be borrowed
+        uint256 maxBorrow = ((vaults[msg.sender].collateralAmount *
+            collateral.price) /
+            debt.price /
+            reserve.collateralizationRatio) * 100;
+        // reframe max borrow amount to debt token granularity
+        maxBorrow *= debt.priceGranularity;
+        maxBorrow /= collateral.priceGranularity;
+        // subtract maxBorrow by how much the borrower has already borrowed
+        maxBorrow -= vaults[msg.sender].debtAmount;
+        // increase amount borrowed by borrow amount + origination fee
+        vaults[msg.sender].debtAmount +=
+            amount +
+            ((amount * reserve.originationFee) / 10000);
+        // if amount borrowed is greater than max permitted, then revert
+        require(
+            vaults[msg.sender].debtAmount < maxBorrow,
+            "NOT ENOUGH COLLATERAL"
+        );
+        // if amount borrowed is greater than tokens available in reserve, then revert
+        require(
+            amount <= IERC20(debt.tokenAddress).balanceOf(address(this)),
+            "NOT ENOUGH RESERVES"
+        );
+        // // if more than a interest accruement period has passed, since vault creation, then reset createdAt to current time
+        // // if this is first time borrowing (making a vault), it will obviously set createdAt
+        // // the reason this wants to update with each repayment is because it affects the interest calculation
+        // if (block.timestamp - vaults[msg.sender].createdAt > reserve.period) {
+        //     // Only adjust if more than 1 interest rate period has past
+        //     vaults[msg.sender].createdAt = block.timestamp;
+        // }
+
+        // reseting to always be block.timestamp because we need real-time accounting for superfluid
+        vaults[msg.sender].createdAt = block.timestamp;
+
+        // reduce balance of reserve
+        reserve.debtBalance -= amount;
+        // provide borrower with debt tokens
+        IERC20(debt.tokenAddress).safeTransfer(msg.sender, amount);
+        emit VaultBorrow(msg.sender, amount);
+    }
+
+    /**
+     * @dev This function allows users to pay the interest and origination fee to the
+     *  vault before being able to withdraw
+     * @param amount owed
+     */
+    function vaultRepay(uint256 amount) external {
+        require(amount > 0, "Amount is zero !!");
+        // get debt amount with accrued interest
+        vaults[msg.sender].debtAmount = getVaultRepayAmount();
+        require(
+            amount <= vaults[msg.sender].debtAmount,
+            "CANNOT REPAY MORE THAN OWED"
+        );
+        // reduce the debt amount in storage
+        vaults[msg.sender].debtAmount -= amount;
+        // increase the reserve balance by repayment amount
+        reserve.debtBalance += amount;
+        
+        // // see how many period elabsed since creation of vault
+        // uint256 periodsElapsed = (block.timestamp / reserve.period) -
+        //     (vaults[msg.sender].createdAt / reserve.period);
+        // // increase vault creation period number by number of periods elapsed since original vault creation
+        // vaults[msg.sender].createdAt += periodsElapsed * reserve.period;
+
+        // reseting to always be block.timestamp because we need real-time accounting for superfluid
+        vaults[msg.sender].createdAt = block.timestamp;
+
+        IERC20(debt.tokenAddress).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        emit VaultRepay(msg.sender, amount);
+    }
+
+        /**
+     * @dev Getter function for the user's vault debt amount
+     *   uses a simple interest formula (i.e. not compound  interest)
+     * @return principal debt amount
+     */
+    function getVaultRepayAmount() public view returns (uint256 principal) {
+
+        // Alternative Continuous Simple Interest Implementation
+        // get rid of reserve period and just use seconds
+        // additional interest = seconds elapsed since borrow * ( (principal * annual interest rate) / seconds in a year )
+
+        // get initial debt amount (how much as borrowed + origination fee)
+        principal = vaults[msg.sender].debtAmount;
+        // how many periods for adding interest are there per year
+        // so if the period is 1 day, then you have 365 periods per year
+        uint256 periodsPerYear = 365 days / reserve.period;
+        // how many periods have elapsed since the creation of the vault
+        // current period number - period of creation
+        uint256 periodsElapsed = (block.timestamp / reserve.period) -
+            (vaults[msg.sender].createdAt / reserve.period);
+        // interest rate is provided in an annual format
+        // get show how much interest would have accrued over the whole year
+        //      ( (principal * reserve.interestRate) / 10000 )
+        // divide it down to interest paid per day
+        //      / periodsPerYear
+        // multiply by periodsElapsed to get how much interest has accrued in total
+        principal +=
+            ( ( (principal * reserve.interestRate) / 10000 ) / periodsPerYear) *
+            periodsElapsed;
+    }
+
+
+
+
+
+
+
+
+
+      xit('Superfluid experimenting', async function () { 
+
+    // approve DTx to transfer DT
+    await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000"));
+
+    // user2 upgrades 100 tokens
+    const dtUpgradeOperation = dtInstance2x.upgrade({
+        amount: ethers.utils.parseEther("1000")
+    });
+
+    await dtUpgradeOperation.exec(randomUser2);
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
+
+    // user2 starts stream to superapp
+    await ( await sf.cfaV1.createFlow({
+      receiver: deployer.address,
+      superToken: dtInstance2x.address,
+      flowRate: "100000000",
+    }) ).exec( randomUser2 );
+
+    // // show stream rates
+    // const user2FlowRate = await sf.cfaV1.getNetFlow({
+    //   superToken: dtInstance2x.address,
+    //   account: randomUser2.address,
+    //   providerOrSigner: superSigner
+    // });
+
+    // console.log("user2FlowRate:", user2FlowRate);
+
+    // // show stream rates
+    // const deployerFlowRate = await sf.cfaV1.getNetFlow({
+    //   superToken: dtInstance2x.address,
+    //   account: randomUser2.address,
+    //   providerOrSigner: superSigner
+    // });
+
+    // console.log("deployerFlowRate:", deployerFlowRate);
+
+    await getNetflowForEntities([randomUser2, deployer], ["User 2","Admin"])
+
+    await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
+
+  });
