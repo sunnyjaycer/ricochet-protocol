@@ -103,274 +103,6 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         _;
     }
 
-    /*Functions*/
-    /**
-     * @dev Returns the owner of the bank
-     */
-    function owner() public view returns (address) {
-        return _owner;
-    }
-
-    /**
-     * @dev Transfers ownership of the contract to a new account (`newOwner`).
-     * Can only be called by the current owner.
-     * NOTE: Override this to add changing the
-     */
-    function transferOwnership(address newOwner) public onlyOwner {
-        _owner = newOwner;
-    }
-
-    /**
-     * @dev This function sets the fundamental parameters for the bank
-     *      and assigns the first admin
-     */
-    function init(
-        address creator,
-        string memory bankName,
-        uint256 interestRate,
-        uint256 originationFee,
-        uint256 collateralizationRatio,
-        uint256 liquidationPenalty,
-        uint256 period,
-        address bankFactoryOwner,
-        address payable oracleContract
-    ) public initializer {
-        //set up as admin / owner
-        _setupRole(DEFAULT_ADMIN_ROLE, creator);
-        reserve.interestRate = interestRate;
-        reserve.collateralizationRatio = collateralizationRatio;
-        reserve.oracleContract = oracleContract;
-        reserve.liquidationPenalty = liquidationPenalty;
-        _bankFactoryOwner = bankFactoryOwner;
-        name = bankName;
-    }
-
-    /**
-     * @dev This function sets the collateral token properties, only callable one time
-     */
-    function setCollateral(
-        address collateralToken,
-        uint256 collateralTokenTellorRequestId,
-        uint256 collateralTokenPriceGranularity,
-        uint256 collateralTokenPrice
-    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(
-            collateral.tokenAddress == address(0) &&
-                collateralToken != address(0),
-            "!setable"
-        );
-        collateral.tokenAddress = collateralToken;
-        collateral.price = collateralTokenPrice;
-        collateral.priceGranularity = collateralTokenPriceGranularity;
-        collateral.tellorRequestId = collateralTokenTellorRequestId;
-    }
-
-    /**
-     * @dev This function sets the debt token properties, only callable one time
-     */
-    function setDebt(
-        address debtToken,
-        uint256 debtTokenTellorRequestId,
-        uint256 debtTokenPriceGranularity,
-        uint256 debtTokenPrice
-    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(
-            debt.tokenAddress == address(0) && debtToken != address(0),
-            "!setable"
-        );
-        debt.tokenAddress = debtToken;
-        debt.price = debtTokenPrice;
-        debt.priceGranularity = debtTokenPriceGranularity;
-        debt.tellorRequestId = debtTokenTellorRequestId;
-    }
-
-    /**
-     * @dev This function allows the Bank owner to deposit the reserve (debt tokens)
-     * @param amount is the amount to deposit
-     */
-    function reserveDeposit(uint256 amount)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        require(amount > 0, "Amount is zero !!");
-        reserve.debtBalance += amount;
-        IERC20(debt.tokenAddress).safeTransferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
-        emit ReserveDeposit(amount);
-    }
-
-    /**
-     * @dev This function allows the Bank owner to withdraw the reserve (debt tokens)
-     *      Withdraws incur a 0.5% fee paid to the bankFactoryOwner
-     * @param amount is the amount to withdraw
-     */
-    function reserveWithdraw(uint256 amount)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        require(
-            IERC20(debt.tokenAddress).balanceOf(address(this)) >= amount,
-            "NOT ENOUGH DEBT TOKENS IN RESERVE"
-        );
-        uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
-        reserve.debtBalance -= amount;
-        IERC20(debt.tokenAddress).safeTransfer(msg.sender, amount - feeAmount);
-        IERC20(debt.tokenAddress).safeTransfer(_bankFactoryOwner, feeAmount);
-        emit ReserveWithdraw(debt.tokenAddress, amount);
-    }
-
-    /**
-  * @dev This function allows the user to withdraw their collateral
-         Withdraws incur a 0.5% fee paid to the bankFactoryOwner
-  * @param amount is the amount to withdraw
-  */
-    function reserveWithdrawCollateral(uint256 amount)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        require(
-            reserve.collateralBalance >= amount,
-            "NOT ENOUGH COLLATERAL IN RESERVE"
-        );
-        uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
-        reserve.collateralBalance -= amount;
-        emit ReserveWithdraw(collateral.tokenAddress, amount);
-        IERC20(collateral.tokenAddress).safeTransfer(
-            msg.sender,
-            amount - feeAmount
-        );
-        IERC20(collateral.tokenAddress).safeTransfer(
-            _bankFactoryOwner,
-            feeAmount
-        );
-    }
-
-    /**
-     * @dev Use this function to get and update the price for the collateral token
-     * using the Tellor Oracle.
-     */
-    function updateCollateralPrice() external {
-        require(
-            hasRole(REPORTER_ROLE, msg.sender) ||
-                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "not price updater or admin"
-        );
-        (, collateral.price, collateral.lastUpdatedAt) = getCurrentValue(
-            collateral.tellorRequestId
-        ); //,now - 1 hours);
-        emit PriceUpdate(collateral.tokenAddress, collateral.price);
-    }
-
-    /**
-     * @dev Use this function to get and update the price for the debt token
-     * using the Tellor Oracle.
-     */
-    function updateDebtPrice() external {
-        require(
-            hasRole(REPORTER_ROLE, msg.sender) ||
-                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "not price updater or admin"
-        );
-        (, debt.price, debt.lastUpdatedAt) = getCurrentValue(
-            debt.tellorRequestId
-        ); //,now - 1 hours);
-        emit PriceUpdate(debt.tokenAddress, debt.price);
-    }
-
-    /**
-     * @dev Only keepers or admins can use this function to liquidate a vault's debt,
-     * the bank admins gets the collateral liquidated, liquidated collateral
-     * is charged a 10% fee which gets paid to the bankFactoryOwner
-     * @param vaultOwner is the user the bank admins wants to liquidate
-     */
-    function liquidate(address vaultOwner) public {
-        require(
-            hasRole(KEEPER_ROLE, msg.sender) ||
-                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "not keeper or admin"
-        );
-        // Require undercollateralization
-        require(
-            getVaultCollateralizationRatio(vaultOwner) <
-                reserve.collateralizationRatio * 100,
-            "VAULT NOT UNDERCOLLATERALIZED"
-        );
-        // add liquidation penalty to debt outstanding
-        uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount * 100 * reserve.liquidationPenalty) / 100 / 100);
-        // reframe the debt token quantity to collateral token quantity (because the collateral is getting slashed, need to know how much to take)
-        uint256 collateralToLiquidate = (debtOwned * debt.price) /
-            collateral.price;
-
-        // if the amount of collateral to liquidate is greater than the collateral actual available, set it as such
-        if (collateralToLiquidate > vaults[vaultOwner].collateralAmount) {
-            collateralToLiquidate = vaults[vaultOwner].collateralAmount;
-        }
-
-        // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
-        uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
-
-        // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
-        reserve.collateralBalance += collateralToLiquidate - feeAmount;
-
-        // reduce the collateral possessed by the vault owner
-        vaults[vaultOwner].collateralAmount -= collateralToLiquidate;
-
-        // forget outstanding debt
-        vaults[vaultOwner].debtAmount = 0;
-
-        // transfer fee to bank
-        IERC20(collateral.tokenAddress).safeTransfer(
-            _bankFactoryOwner,
-            feeAmount
-        );
-        emit Liquidation(vaultOwner, debtOwned);
-    }
-
-    /**
-     * @dev Use this function to allow users to deposit collateral to the vault
-     * @param amount is the collateral amount
-     */
-    function vaultDeposit(uint256 amount) external {
-        require(amount > 0, "Amount is zero !!");
-        vaults[msg.sender].collateralAmount += amount;
-        reserve.collateralBalance += amount;
-        IERC20(collateral.tokenAddress).safeTransferFrom(
-            msg.sender,
-            address(this),
-            amount
-        );
-        emit VaultDeposit(msg.sender, amount);
-    }
-
-    /**
-     * @dev Allows users to withdraw their collateral from the vault
-     * @param amount withdrawn
-     */
-    function vaultWithdraw(uint256 amount) external {
-        require(
-            amount <= vaults[msg.sender].collateralAmount,
-            "CANNOT WITHDRAW MORE COLLATERAL"
-        );
-        // 
-        uint256 maxBorrowAfterWithdraw = (((vaults[msg.sender]
-            .collateralAmount - amount) * collateral.price) /
-            debt.price /
-            reserve.collateralizationRatio) * 100;
-        maxBorrowAfterWithdraw *= debt.priceGranularity;
-        maxBorrowAfterWithdraw /= collateral.priceGranularity;
-        require(
-            vaults[msg.sender].debtAmount <= maxBorrowAfterWithdraw,
-            "CANNOT UNDERCOLLATERALIZE VAULT"
-        );
-        vaults[msg.sender].collateralAmount -= amount;
-        reserve.collateralBalance -= amount;
-        IERC20(collateral.tokenAddress).safeTransfer(msg.sender, amount);
-        emit VaultWithdraw(msg.sender, amount);
-    }
-
     /**************************************************************************
      * SuperApp callback hooks
      *************************************************************************/
@@ -446,9 +178,9 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), currentOwnerFlow + (interestPaymentFlowRate - vaults[borrower].interestPaymentFlow));
 
         // Set profile to proper debt amount and interest flow rate
+        reserve.debtBalance = (reserve.debtBalance - newBorrowAmount) + vaults[borrower].debtAmount;
         vaults[borrower].debtAmount = newBorrowAmount; 
         vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
-        reserve.debtBalance = reserve.debtBalance - (newBorrowAmount - vaults[borrower].debtAmount) ;
 
     }
 
@@ -580,6 +312,119 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
      * Getters & Setters
      *************************************************************************/
 
+    /*Functions*/
+    /**
+     * @dev Returns the owner of the bank
+     */
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @dev Transfers ownership of the contract to a new account (`newOwner`).
+     * Can only be called by the current owner.
+     * NOTE: Override this to add changing the
+     */
+    function transferOwnership(address newOwner) public onlyOwner {
+        _owner = newOwner;
+    }
+
+    /**
+     * @dev This function sets the fundamental parameters for the bank
+     *      and assigns the first admin
+     */
+    function init(
+        address creator,
+        string memory bankName,
+        uint256 interestRate,
+        uint256 originationFee,
+        uint256 collateralizationRatio,
+        uint256 liquidationPenalty,
+        uint256 period,
+        address bankFactoryOwner,
+        address payable oracleContract
+    ) public initializer {
+        //set up as admin / owner
+        _setupRole(DEFAULT_ADMIN_ROLE, creator);
+        reserve.interestRate = interestRate;
+        reserve.collateralizationRatio = collateralizationRatio;
+        reserve.oracleContract = oracleContract;
+        reserve.liquidationPenalty = liquidationPenalty;
+        _bankFactoryOwner = bankFactoryOwner;
+        name = bankName;
+    }
+
+    /**
+     * @dev This function sets the collateral token properties, only callable one time
+     */
+    function setCollateral(
+        address collateralToken,
+        uint256 collateralTokenTellorRequestId,
+        uint256 collateralTokenPriceGranularity,
+        uint256 collateralTokenPrice
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(
+            collateral.tokenAddress == address(0) &&
+                collateralToken != address(0),
+            "!setable"
+        );
+        collateral.tokenAddress = collateralToken;
+        collateral.price = collateralTokenPrice;
+        collateral.priceGranularity = collateralTokenPriceGranularity;
+        collateral.tellorRequestId = collateralTokenTellorRequestId;
+    }
+
+    /**
+     * @dev This function sets the debt token properties, only callable one time
+     */
+    function setDebt(
+        address debtToken,
+        uint256 debtTokenTellorRequestId,
+        uint256 debtTokenPriceGranularity,
+        uint256 debtTokenPrice
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(
+            debt.tokenAddress == address(0) && debtToken != address(0),
+            "!setable"
+        );
+        debt.tokenAddress = debtToken;
+        debt.price = debtTokenPrice;
+        debt.priceGranularity = debtTokenPriceGranularity;
+        debt.tellorRequestId = debtTokenTellorRequestId;
+    }
+
+    /**
+     * @dev Use this function to get and update the price for the collateral token
+     * using the Tellor Oracle.
+     */
+    function updateCollateralPrice() external {
+        require(
+            hasRole(REPORTER_ROLE, msg.sender) ||
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "not price updater or admin"
+        );
+        (, collateral.price, collateral.lastUpdatedAt) = getCurrentValue(
+            collateral.tellorRequestId
+        ); //,now - 1 hours);
+        emit PriceUpdate(collateral.tokenAddress, collateral.price);
+    }
+
+    /**
+     * @dev Use this function to get and update the price for the debt token
+     * using the Tellor Oracle.
+     */
+    function updateDebtPrice() external {
+        require(
+            hasRole(REPORTER_ROLE, msg.sender) ||
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "not price updater or admin"
+        );
+        (, debt.price, debt.lastUpdatedAt) = getCurrentValue(
+            debt.tellorRequestId
+        ); //,now - 1 hours);
+        emit PriceUpdate(debt.tokenAddress, debt.price);
+    }
+
     function getBankFactoryOwner() public view returns (address) {
         return _bankFactoryOwner;
     }
@@ -643,6 +488,163 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         revokeRole(REPORTER_ROLE, oldUpdater);
     }
 
+    /**************************************************************************
+     * Reserve & Vault Functions (Includes Liquidation)
+     *************************************************************************/
 
+    /**
+     * @dev This function allows the Bank owner to deposit the reserve (debt tokens)
+     * @param amount is the amount to deposit
+     */
+    function reserveDeposit(uint256 amount)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(amount > 0, "Amount is zero !!");
+        reserve.debtBalance += amount;
+        IERC20(debt.tokenAddress).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        emit ReserveDeposit(amount);
+    }
+
+    /**
+     * @dev This function allows the Bank owner to withdraw the reserve (debt tokens)
+     *      Withdraws incur a 0.5% fee paid to the bankFactoryOwner
+     * @param amount is the amount to withdraw
+     */
+    function reserveWithdraw(uint256 amount)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(
+            IERC20(debt.tokenAddress).balanceOf(address(this)) >= amount,
+            "NOT ENOUGH DEBT TOKENS IN RESERVE"
+        );
+        uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
+        reserve.debtBalance -= amount;
+        IERC20(debt.tokenAddress).safeTransfer(msg.sender, amount - feeAmount);
+        IERC20(debt.tokenAddress).safeTransfer(_bankFactoryOwner, feeAmount);
+        emit ReserveWithdraw(debt.tokenAddress, amount);
+    }
+
+    /**
+  * @dev This function allows the user to withdraw their collateral
+         Withdraws incur a 0.5% fee paid to the bankFactoryOwner
+  * @param amount is the amount to withdraw
+  */
+    function reserveWithdrawCollateral(uint256 amount)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(
+            reserve.collateralBalance >= amount,
+            "NOT ENOUGH COLLATERAL IN RESERVE"
+        );
+        uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
+        reserve.collateralBalance -= amount;
+        emit ReserveWithdraw(collateral.tokenAddress, amount);
+        IERC20(collateral.tokenAddress).safeTransfer(
+            msg.sender,
+            amount - feeAmount
+        );
+        IERC20(collateral.tokenAddress).safeTransfer(
+            _bankFactoryOwner,
+            feeAmount
+        );
+    }
+
+    /**
+     * @dev Use this function to allow users to deposit collateral to the vault
+     * @param amount is the collateral amount
+     */
+    function vaultDeposit(uint256 amount) external {
+        require(amount > 0, "Amount is zero !!");
+        vaults[msg.sender].collateralAmount += amount;
+        reserve.collateralBalance += amount;
+        IERC20(collateral.tokenAddress).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        emit VaultDeposit(msg.sender, amount);
+    }
+
+    /**
+     * @dev Allows users to withdraw their collateral from the vault
+     * @param amount withdrawn
+     */
+    function vaultWithdraw(uint256 amount) external {
+        require(
+            amount <= vaults[msg.sender].collateralAmount,
+            "CANNOT WITHDRAW MORE COLLATERAL"
+        );
+        // 
+        uint256 maxBorrowAfterWithdraw = (((vaults[msg.sender]
+            .collateralAmount - amount) * collateral.price) /
+            debt.price /
+            reserve.collateralizationRatio) * 100;
+        maxBorrowAfterWithdraw *= debt.priceGranularity;
+        maxBorrowAfterWithdraw /= collateral.priceGranularity;
+        require(
+            vaults[msg.sender].debtAmount <= maxBorrowAfterWithdraw,
+            "CANNOT UNDERCOLLATERALIZE VAULT"
+        );
+        vaults[msg.sender].collateralAmount -= amount;
+        reserve.collateralBalance -= amount;
+        IERC20(collateral.tokenAddress).safeTransfer(msg.sender, amount);
+        emit VaultWithdraw(msg.sender, amount);
+    }
+
+    /**
+     * @dev Only keepers or admins can use this function to liquidate a vault's debt,
+     * the bank admins gets the collateral liquidated, liquidated collateral
+     * is charged a 10% fee which gets paid to the bankFactoryOwner
+     * @param vaultOwner is the user the bank admins wants to liquidate
+     */
+    function liquidate(address vaultOwner) public {
+        require(
+            hasRole(KEEPER_ROLE, msg.sender) ||
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "not keeper or admin"
+        );
+        // Require undercollateralization
+        require(
+            getVaultCollateralizationRatio(vaultOwner) <
+                reserve.collateralizationRatio * 100,
+            "VAULT NOT UNDERCOLLATERALIZED"
+        );
+        // add liquidation penalty to debt outstanding
+        uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount * 100 * reserve.liquidationPenalty) / 100 / 100);
+        // reframe the debt token quantity to collateral token quantity (because the collateral is getting slashed, need to know how much to take)
+        uint256 collateralToLiquidate = (debtOwned * debt.price) /
+            collateral.price;
+
+        // if the amount of collateral to liquidate is greater than the collateral actual available, set it as such
+        if (collateralToLiquidate > vaults[vaultOwner].collateralAmount) {
+            collateralToLiquidate = vaults[vaultOwner].collateralAmount;
+        }
+
+        // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
+        uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
+
+        // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
+        reserve.collateralBalance += collateralToLiquidate - feeAmount;
+
+        // reduce the collateral possessed by the vault owner
+        vaults[vaultOwner].collateralAmount -= collateralToLiquidate;
+
+        // forget outstanding debt
+        vaults[vaultOwner].debtAmount = 0;
+
+        // transfer fee to bank
+        IERC20(collateral.tokenAddress).safeTransfer(
+            _bankFactoryOwner,
+            feeAmount
+        );
+        emit Liquidation(vaultOwner, debtOwned);
+    }
 
 }

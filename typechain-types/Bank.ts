@@ -56,7 +56,6 @@ export interface BankInterface extends utils.Interface {
     "getVaultCollateralizationRatio(address)": FunctionFragment;
     "getVaultDebtAmount()": FunctionFragment;
     "getVaultInterestPaymentFlowAmount()": FunctionFragment;
-    "getVaultRepayAmount()": FunctionFragment;
     "grantRole(bytes32,address)": FunctionFragment;
     "hasRole(bytes32,address)": FunctionFragment;
     "init(address,string,uint256,uint256,uint256,uint256,uint256,address,address)": FunctionFragment;
@@ -211,10 +210,6 @@ export interface BankInterface extends utils.Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "getVaultInterestPaymentFlowAmount",
-    values?: undefined
-  ): string;
-  encodeFunctionData(
-    functionFragment: "getVaultRepayAmount",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -440,10 +435,6 @@ export interface BankInterface extends utils.Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "getVaultInterestPaymentFlowAmount",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "getVaultRepayAmount",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "grantRole", data: BytesLike): Result;
@@ -798,10 +789,6 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<[BigNumber]>;
 
-    getVaultRepayAmount(
-      overrides?: CallOverrides
-    ): Promise<[BigNumber] & { principal: BigNumber }>;
-
     grantRole(
       role: BytesLike,
       account: string,
@@ -1083,8 +1070,6 @@ export interface Bank extends BaseContract {
     overrides?: CallOverrides
   ): Promise<BigNumber>;
 
-  getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
-
   grantRole(
     role: BytesLike,
     account: string,
@@ -1359,8 +1344,6 @@ export interface Bank extends BaseContract {
     getVaultInterestPaymentFlowAmount(
       overrides?: CallOverrides
     ): Promise<BigNumber>;
-
-    getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
 
     grantRole(
       role: BytesLike,
@@ -1721,8 +1704,6 @@ export interface Bank extends BaseContract {
       overrides?: CallOverrides
     ): Promise<BigNumber>;
 
-    getVaultRepayAmount(overrides?: CallOverrides): Promise<BigNumber>;
-
     grantRole(
       role: BytesLike,
       account: string,
@@ -2011,10 +1992,6 @@ export interface Bank extends BaseContract {
     ): Promise<PopulatedTransaction>;
 
     getVaultInterestPaymentFlowAmount(
-      overrides?: CallOverrides
-    ): Promise<PopulatedTransaction>;
-
-    getVaultRepayAmount(
       overrides?: CallOverrides
     ): Promise<PopulatedTransaction>;
 

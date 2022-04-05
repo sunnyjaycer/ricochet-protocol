@@ -213,23 +213,6 @@ contract BankStorage {
     }
 
     /**
-     * @dev Getter function for the user's vault debt amount
-     *   uses a simple interest formula (i.e. not compound  interest)
-     * @return principal debt amount
-     */
-    function getVaultRepayAmount() public view returns (uint256 principal) {
-
-        // Alternative Continuous Simple Interest Implementation
-        // get rid of reserve period and just use seconds
-        // additional interest = seconds elapsed since borrow * ( (principal * annual interest rate) / seconds in a year )
-
-        uint256 secondsElapsed = block.timestamp - vaults[msg.sender].createdAt;
-        uint256 interestPerSecond = ( ( vaults[msg.sender].debtAmount * reserve.interestRate ) / 10000 ) / 31536000;
-        uint256 principal = vaults[msg.sender].debtAmount + (secondsElapsed * interestPerSecond);
-        return principal;
-    }
-
-    /**
      * @dev Getter function for the collateralization ratio
      * @return collateralization ratio
      */

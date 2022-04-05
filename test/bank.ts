@@ -1,3 +1,8 @@
+// parseUnits - number in wei (second param with more control over denomination)
+// parseEther - number in wei (gives bignumber)
+// formatUnits - number in ethers
+// chai assertion suite - https://www.chaijs.com/
+
 import { network, ethers, web3 } from 'hardhat';
 import { increaseTime } from "./helpers";
 import { assert, expect } from 'chai';
@@ -20,6 +25,8 @@ describe("Bank", function () {
   const DAYS_IN_A_YEAR = ethers.BigNumber.from(365);
   const BIGNUMBER_10000 = ethers.BigNumber.from(10000);
   const SECONDS_IN_A_YEAR = ethers.BigNumber.from(31536000);
+
+  const TEN_ETH_PER_YEAR_FLOW_RATE = ethers.BigNumber.from(317097919837);
 
   const INTEREST_RATE = 200; // 2%
   const ORIGINATION_FEE = 100; // 1%
@@ -113,7 +120,7 @@ describe("Bank", function () {
     //// Set up collateral token
 
     CT2 = await ethers.getContractFactory("GLDToken");
-    ctInstance2 = await CT2.deploy(ethers.utils.parseUnits("40000"));  // JR
+    ctInstance2 = await CT2.deploy(ethers.utils.parseUnits("100000"));  // JR
     await ctInstance2.deployed();
 
     //// Set up debt token, both ERC20 and wrapped super token
@@ -160,43 +167,83 @@ describe("Bank", function () {
     largeBorrowAmount = ethers.utils.parseUnits("75");
     smallBorrowAmount = ethers.utils.parseUnits("20");
 
-    //// Set up initial token balances
-
-    //  A non-admin has a positive balance
-    await ctInstance2.transfer(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-    await dtInstance2.connect(deployer).mint(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-    await checkTokenBalances([randomUser2], ["User 2"]);
-
-    //  The admin has a positive balance
-    await ctInstance2.transfer(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));  // Added line
-    await dtInstance2.connect(deployer).mint(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-    await checkTokenBalances([deployer], ["Admin"]);
-
     // set keepers
     await bankInstance2.addKeeper(randomUser3.address);
     await bankInstance2.addKeeper(randomUser4.address);
     //set updaters
     await bankInstance2.addReporter(randomUser5.address);
     await bankInstance2.addReporter(randomUser6.address);
+
+    console.log("+++++++++++++ SET UP COMPLETE +++++++++++++")
   });
 
-  async function checkTokenBalances(user:SignerWithAddress[], name:string[]) {
+    /**
+   * Sets up user 2, 3, 4 with 20,000 Super Debt Tokens from the admin's original balance of 100,000 at minting
+   * Admin approves bank for spending of Super Debt Tokens
+   * User 2, 3, 4 approves bank for spending of collateral tokens
+   */
+  async function setTokenBalances1() {
+      //// Set up initial token balances
+
+      //  A non-admin has a positive balance (20,000)
+      await ctInstance2.transfer(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await dtInstance2.connect(deployer).mint(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await ctInstance2.transfer(randomUser3.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await dtInstance2.connect(deployer).mint(randomUser3.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await ctInstance2.transfer(randomUser4.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await dtInstance2.connect(deployer).mint(randomUser4.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+
+      //  The admin has a positive balance (20,000)
+      await ctInstance2.transfer(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));  // Added line
+      await dtInstance2.connect(deployer).mint(deployer.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+
+      // approve DTx to transfer DT
+      await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await dtInstance2.connect(randomUser3).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await dtInstance2.connect(randomUser4).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await dtInstance2.connect(deployer).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+
+      // user2 and admin upgrade 20,000 tokens
+      const dtUpgradeOperation = dtInstance2x.upgrade({
+        amount: ethers.utils.parseEther("20000").toString()
+      });
+      await dtUpgradeOperation.exec(randomUser2);
+      await dtUpgradeOperation.exec(randomUser3);
+      await dtUpgradeOperation.exec(randomUser4);
+      await dtUpgradeOperation.exec(deployer);
+
+      // Admin approves bank for spending of Super Debt Tokens
+      const dtxApproveOperation = dtInstance2x.approve({
+        receiver: bankInstance2.address,
+        amount: ethers.utils.parseEther("10000000000000000000000000000000000000").toString()
+      });
+      await dtxApproveOperation.exec(deployer);
+
+      // User 2 approves bank for spending of collateral tokens
+      await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+
+      await logTokenBalances([randomUser2, randomUser3, randomUser4, deployer], ["User 2", "User 3", "User 4", "Admin"]);
+      
+      console.log("+++++++++++++ TOKEN BALANCES SET ++++++++++++");
+  }
+
+  async function logTokenBalances(user:SignerWithAddress[], name:string[]) {
     console.log("===== Token Balances ====="); 
     for (let i = 0; i < name.length; ++i) {
       console.log(name[i])
-      console.log("    Collateral Token Balance: ", await ctInstance2.connect(user[i]).balanceOf(user[i].address));
-      console.log("    Debt Token Balance: ", await dtInstance2.connect(user[i]).balanceOf(user[i].address));
+      console.log("    Collateral Token Balance: ", parseInt( await ctInstance2.connect(user[i]).balanceOf(user[i].address))/(10**18) );
+      console.log("    Debt Token Balance: ", parseInt( await dtInstance2.connect(user[i]).balanceOf(user[i].address) )/(10**18) );
       console.log("    Debt Super Token Balance: ", 
-        await dtInstance2x.balanceOf({
+        parseInt( await dtInstance2x.balanceOf({
           account: user[i].address,
           providerOrSigner: user[i]
-        })
+        }) )/(10**18)
       );
     }
     console.log("==========================\n");
   }
 
-  async function getNetflowForEntities(user:SignerWithAddress[],name:string[]) {
+  async function logNetflowForEntities(user:SignerWithAddress[],name:string[]) {
     console.log("===== Netflow Rates ====="); 
     for (let i = 0; i < name.length; ++i) {
       const flowRate = await sf.cfaV1.getNetFlow({
@@ -210,14 +257,14 @@ describe("Bank", function () {
   }
 
   async function logFlows(user:SignerWithAddress[]) {
-    console.log("========== Flow Rates =========="); 
+    console.log("========== Annual Flow Rates =========="); 
     for (let i = 0; i < user.length; ++i) {
       const userFlowRate = await sf.cfaV1.getNetFlow({
         superToken: dtInstance2x.address,
         account: user[i].address,
         providerOrSigner: superSigner
       });
-      console.log(user_directory[ user[i].address ], "Net Flow Rate:\t", userFlowRate);
+      console.log(user_directory[ user[i].address ], "Net Flow Rate:\t", ( parseInt(userFlowRate) * 31536000 / (10**18) ).toFixed(2) );
     }
     const bankFlowRate = await sf.cfaV1.getFlow({
       superToken: dtInstance2x.address,
@@ -225,496 +272,45 @@ describe("Bank", function () {
       receiver: randomUser6.address,
       providerOrSigner: superSigner
     });
-    console.log("Bank Revenue Flow Rate:\t", bankFlowRate.flowRate );
-    console.log("====================================\n");
+    console.log("Bank Revenue Flow Rate:\t", ( parseInt(bankFlowRate.flowRate) * 31536000 / (10**18) ).toFixed(2) );
+    console.log("======================================\n");
   }
 
-  xit('should create bank with correct parameters', async function () {
-    const interestRate = await bankInstance2.getInterestRate();
-    const originationFee = await bankInstance2.getOriginationFee();
-    const collateralizationRatio = await bankInstance2.getCollateralizationRatio();
-    const liquidationPenalty = await bankInstance2.getLiquidationPenalty();
-    const reserveBalance = await bankInstance2.getReserveBalance();
-    const reserveCollateralBalance = await bankInstance2.getReserveCollateralBalance();
-    // ==
-    const isAdmin = await bankInstance2.hasRole(DEFAULT_ADMIN_ROLE, deployer.address);
-    const isKeeper1 = await bankInstance2.hasRole(KEEPER_ROLE, randomUser3.address);
-    const isKeeper2 = await bankInstance2.hasRole(KEEPER_ROLE, randomUser4.address);
-    const isReporter1 = await bankInstance2.hasRole(REPORTER_ROLE, randomUser5.address);
-    const isReporter2 = await bankInstance2.hasRole(REPORTER_ROLE, randomUser6.address);
-    const dtAddress = await bankInstance2.getDebtTokenAddress();
-    const ctAddress = await bankInstance2.getCollateralTokenAddress();
-    const name = await bankInstance2.getName();
-
-    // console.log("  ===== bankInstance2.isAdmin: " + isAdmin);
-    assert.ok(isAdmin);
-    assert.ok(isKeeper1);
-    assert.ok(isKeeper2);
-    assert.ok(isReporter1);
-    assert.ok(isReporter2);
-    assert.equal(name, BANK_NAME);
-    assert(interestRate.eq(ethers.BigNumber.from(INTEREST_RATE)));
-    assert(originationFee.eq(ethers.BigNumber.from(ORIGINATION_FEE)));
-    assert(collateralizationRatio.eq(ethers.BigNumber.from(COLLATERALIZATION_RATIO)));
-    assert(liquidationPenalty.eq(ethers.BigNumber.from(LIQUIDATION_PENALTY)));
-    assert(reserveBalance.eq(ethers.constants.Zero));
-    assert(reserveCollateralBalance.eq(ethers.constants.Zero));
-    assert(dtAddress, dtInstance2.address);
-    assert(ctAddress, ctInstance2.address);
-  });
-
-  xit('only admin role should add / remove new roles', async function () {
-    const admin = await bankInstance2.getRoleMember(DEFAULT_ADMIN_ROLE, 0);
-    assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.constants.Two));
-    assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.constants.Two));
-
-    // user not in role adds keeper
-    await expect(bankInstance2.connect(randomUser7).addKeeper(randomUser8.address))
-      .to.be.revertedWith("AccessControl");
-    await expect(bankInstance2.connect(randomUser7).addReporter(randomUser8.address))
-      .to.be.revertedWith("AccessControl");
-
-    // keeper adds another keeper
-    let keeper = (await bankInstance2.getRoleMember(KEEPER_ROLE, 0));
-    let keeperSigner = await ethers.getSigner(keeper);
-    await expect(bankInstance2.connect(keeperSigner).addKeeper(randomUser8.address)).to.be.revertedWith("AccessControl");
-
-    // reporter adds another reporter  
-    let reporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 0);
-    let reporterSigner = await ethers.getSigner(reporter);
-    await expect(bankInstance2.connect(reporterSigner).addReporter(randomUser8.address)).to.be.revertedWith("AccessControl");
-
-    // admin adds new keeper
-    let adminSigner = await ethers.getSigner(admin);
-    await bankInstance2.connect(adminSigner).addKeeper(randomUser8.address);
-    assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.BigNumber.from(3)));
-
-    // admin adds new reporter
-    await bankInstance2.connect(adminSigner).addReporter(randomUser8.address);
-    assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.BigNumber.from(3)));
-
-    // keeper removes keeper
-    keeper = (await bankInstance2.getRoleMember(KEEPER_ROLE, 0));
-    keeperSigner = await ethers.getSigner(keeper);
-    const removeKeeper = await bankInstance2.getRoleMember(KEEPER_ROLE, 1);
-    await expect(bankInstance2.connect(keeperSigner).revokeKeeper(removeKeeper)).to.be.revertedWith("AccessControl");
-
-    // reporter removes reporter
-    reporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 0);
-    reporterSigner = await ethers.getSigner(reporter);
-    const removeReporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 1);
-    await expect(bankInstance2.connect(reporterSigner).revokeReporter(removeReporter)).to.be.revertedWith("AccessControl");
-
-    // admin removes keeper and updater
-    await bankInstance2.connect(adminSigner).revokeKeeper(removeKeeper);
-    await bankInstance2.connect(adminSigner).revokeReporter(removeReporter);
-
-    assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.BigNumber.from(2)));
-    assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.BigNumber.from(2)));
-  });
-
-  xit('should allow admin to deposit reserves', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    // let adminAllowance = await dtInstance2.allowance(deployer.address, bankInstance2.address);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-    const reserveBalance = await bankInstance2.getReserveBalance();
-    const tokenBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    assert(reserveBalance.eq(depositAmount));
-    assert(tokenBalance.eq(depositAmount));
-  });
-
-  xit('should allow admin to withdraw reserves', async function () {
-
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-    const beforeReserveBalance = await bankInstance2.getReserveBalance();
-    await bankInstance2.connect(deployer).reserveWithdraw(depositAmount);
-    const afterReserveBalance = await bankInstance2.getReserveBalance();
-    const bankTokenBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    const bankFactoryOwner = await bankInstance2.getBankFactoryOwner();
-    const bankCreatorBalance = await dtInstance2.balanceOf(deployer.address);
-    const bankFactoryOwnerBalance = await dtInstance2.balanceOf(bankFactoryOwner);
-    const feeAmt = depositAmount.div(ethers.BigNumber.from(200));
-    assert(beforeReserveBalance.eq(depositAmount));
-    assert(afterReserveBalance.eq(ethers.constants.Zero));
-    assert(bankTokenBalance.eq(ethers.constants.Zero));
-    assert(bankFactoryOwnerBalance.eq(feeAmt));
-  });
-
-  xit('should not allow non-admin to deposit reserves', async function () {
-    await expect(bankInstance2.connect(randomUser2).reserveDeposit(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
-  });
-
-  xit('should not allow non-admin to withdraw reserves', async function () {
-    await expect(bankInstance2.connect(randomUser2).reserveWithdraw(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
-  });
-
-  xit('should allow user to deposit collateral into vault', async function () {
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
-    const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    const tokenBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    assert(collateralAmount.eq(depositAmount));
-    assert(debtAmount.eq(ethers.constants.Zero));
-    assert(tokenBalance.eq(depositAmount));
-  });
-
-  xit('should allow user to withdraw collateral from vault', async function () {
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    // let user2Allowance = await ctInstance2.allowance(randomUser2.address, bankInstance2.address);
-
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount);
-
-    const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
-    const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    const tokenBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    assert(collateralAmount.eq(ethers.constants.Zero));
-    assert(debtAmount.eq(ethers.constants.Zero));
-    assert(tokenBalance.eq(ethers.constants.Zero));
-  });
-
-  xit('should not allow user to withdraw more collateral than they have in vault', async function () {
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await expect(bankInstance2.connect(randomUser2).vaultWithdraw(largeDepositAmount)).to.be.revertedWith("CANNOT WITHDRAW MORE COLLATERAL");
-  });
-
-  xit('should not allow user to withdraw collateral from vault if undercollateralized', async function () {   // Not passed
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-  
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    await increaseTime(60 * 60 * 24 + 10) // Let one days pass
-
-    console.log( await bankInstance2.getVaultRepayAmount() );
-
-    await expect(bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount)).to.be.revertedWith("CANNOT UNDERCOLLATERALIZE VAULT");
-  });  
-
-  xit('should add origination fee to a vault\'s borrowed amount', async function () {   // Not passed
-    // Deposit depositAmount into the bank as liquidity for people to borrow
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-    // User deposits collateral
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    // borrow half the amount of deposit amount
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
-    const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    console.log("123456aaa collateralAmount: " + collateralAmount);
-    assert(collateralAmount.eq(depositAmount));
-    console.log("123456 - ");
-    // Debt amount should equal borrow amount plus origination fee (origination fee isn't taken up front)
-    let b_amount = borrowAmount;
-    b_amount = b_amount.add(
-      b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    assert(debtAmount.eq(ethers.BigNumber.from(b_amount)));
-
-    const collateralBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    const debtBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    // Collateral should equal amount deposited in "User deposits collateral"
-    assert(collateralBalance.eq(depositAmount));
-    // Debt balance should equal depositAmount - borrowAmount 
-    assert( debtBalance.eq( depositAmount.sub(borrowAmount) ) );
-  });
-
-  xit('should allow the user to borrow', async function () {    // JR TEMPLATE
-    // The approve is required
-    // Bank owner deposits liquidity into reserves
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    // borrower deposits collateral
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-
-    const reserveBalance = await bankInstance2.getReserveBalance();
-    console.log("============= reserveBalance: " + reserveBalance);
-    const tokenBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    console.log("============= tokenBalance: " + tokenBalance);
-    const debtAmount2 = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    console.log("============= debtAmount2: " + debtAmount2);
-
-    await bankInstance2.connect(randomUser2).vaultBorrow(smallBorrowAmount);
-    console.log("============= allow the user to borrow ======");
-    await increaseTime(60 * 60 * 24 * 2 + 10);
-
-    const vaultRepayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-    console.log("============= getVaultRepayAmount: " + vaultRepayAmount);
-
-    await bankInstance2.connect(randomUser2).vaultBorrow(smallBorrowAmount);
-    const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
-    const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    assert(collateralAmount.eq(depositAmount));
-    // Calculate borrowed amount, use pays origination fee on 2 borrows
-    let s_amount = smallBorrowAmount;
-    let b_amount = s_amount.add(s_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    let f_b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000)).div(DAYS_IN_A_YEAR);
-    f_b_amount = f_b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000)).div(DAYS_IN_A_YEAR);
-    f_b_amount = f_b_amount.add(s_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    f_b_amount = f_b_amount.add(s_amount);
-    // console.log("CCCC - allow user to borrow - collateralAmount " + collateralAmount);
-    const collateralBalance = await ctInstance2.connect(randomUser2).balanceOf(bankInstance2.address);
-    const debtBalance = await dtInstance2.connect(randomUser2).balanceOf(bankInstance2.address);
-    assert(collateralBalance.eq(depositAmount));
-    assert(debtBalance.eq(ethers.utils.parseUnits("60")));
-  });
-
-  xit('should not allow the user to borrow above collateralization ratio', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await expect(bankInstance2.connect(randomUser2).vaultBorrow("66600000000000000000")).to.be.revertedWith("NOT ENOUGH COLLATERAL");
-    await bankInstance2.connect(randomUser2).vaultBorrow(ethers.utils.parseUnits("66"));
-    await expect(bankInstance2.connect(randomUser2).vaultBorrow(ethers.constants.One)).to.be.revertedWith("NOT ENOUGH COLLATERAL");
-  });
-
-  xit('should accrue interest on a vault\'s borrowed amount', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    let timeIncrease = 60 * 60 * 24 * 2 + 10;
-    await increaseTime(60 * 60 * 24 * 2 + 10) // Let two days pass
-    const repayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-
-    console.log("============= getVaultRepayAmount: " + repayAmount);
-
-    let b_amount = borrowAmount;
-    console.log("Borrowing:", b_amount);
-    // add origination fee
-    b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    console.log("Origination Fee:", b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    // get interest rate by the second: ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000).div(SECONDS_IN_A_YEAR)
-    let interestPerSecond = ( ( b_amount.mul( ethers.BigNumber.from(INTEREST_RATE) ) ).div(BIGNUMBER_10000) ).div(SECONDS_IN_A_YEAR);
-    console.log("Interest Accumulated Per Second:", interestPerSecond);
-    // get interest rate * seconds elapsed to see what percent of b_amount must be increased
-    let totalInterestAccumulated = interestPerSecond.mul(timeIncrease);
-    console.log("Interest Accumulated Total:", totalInterestAccumulated)
-    // increase by interest percentage
-    let f_b_amount = b_amount.add( totalInterestAccumulated );
-
-    console.log("=============            expected: " + f_b_amount);
-    
-    assert(repayAmount.eq(f_b_amount));
-    const collateralBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    const debtBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    // Calculate debt, collateral left after borrow
-    assert(collateralBalance.eq(depositAmount));
-    assert(debtBalance.eq(depositAmount.sub(borrowAmount)));
-  });
-
-  xit('should accrue interest on a vault\'s borrowed amount with repayment', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    await increaseTime(60 * 60 * 24 + 10) // Let one days pass
-    let repayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-    let b_amount = borrowAmount;
-    b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000).div(DAYS_IN_A_YEAR)); // Day 1 interest rate
-    assert(repayAmount.eq(b_amount));
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, smallBorrowAmount);
-    await bankInstance2.connect(randomUser2).vaultRepay(smallBorrowAmount);
-    await increaseTime(60 * 60 * 24 + 10) // Let one days pass
-    b_amount = b_amount.sub(smallBorrowAmount);
-    b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000).div(DAYS_IN_A_YEAR)); // Day 1 interest rate
-    repayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-    assert(repayAmount.eq(b_amount));
-
-    const collateralBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    const debtBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    // Calculate debt, collateral left after borrow
-    expect(collateralBalance.eq(depositAmount));
-    expect(debtBalance.eq(depositAmount.sub(borrowAmount.sub(smallBorrowAmount))));
-  });
-
-  xit('should allow user to withdraw after debt repayment', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    await increaseTime(60 * 60 * 24 * 2 + 10) // Let two days pass
-    const repayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, repayAmount);
-    await bankInstance2.connect(randomUser2).vaultRepay(repayAmount);
-    const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-    assert(debtAmount.eq(ethers.constants.Zero));
-    let b_amount = borrowAmount;
-    b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-    var f_b_amount = b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000).div(DAYS_IN_A_YEAR)); // Day 1 interest rate
-    f_b_amount = f_b_amount.add(b_amount.mul(ethers.BigNumber.from(INTEREST_RATE)).div(BIGNUMBER_10000).div(DAYS_IN_A_YEAR)); // Day 2 interest rate
-    // The debt balance should be the original + fees and interest
-    const collateralBalance = await ctInstance2.balanceOf(bankInstance2.address);
-    const debtBalance = await dtInstance2.balanceOf(bankInstance2.address);
-    assert(collateralBalance.eq(depositAmount));
-    assert(debtBalance.eq(depositAmount.sub(borrowAmount).add(f_b_amount)));
-  });
-
-  xit('should not allow user to withdraw without debt repayment', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    await increaseTime(60 * 60 * 24 * 2 + 10) // Let two days pass
-    await expect(bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount)).to.be.revertedWith("CANNOT UNDERCOLLATERALIZE VAULT");
-  });
-
-  xit('should not allow user to borrow below the collateralization ratio', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await expect(bankInstance2.connect(randomUser2).vaultBorrow(largeBorrowAmount)).to.be.revertedWith("NOT ENOUGH COLLATERAL");
-  });
-
-  // xit('should calculate correct collateralization ratio for a user\'s vault', async function () {
-
-  //   await dtInstance2.approve(bankInstance2.address, depositAmount);
-  //   await bankInstance2.reserveDeposit(depositAmount);
-
-  //   // The first price for the collateral and debt
-  //   await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("USDT", "USDT/USD", 1000, 0).encodeABI() })
-  //   for (let i = 0; i <= 4; i++) {
-  //     await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 1, 1000).encodeABI() })
-  //   }
-
-  //   await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("GLD", "GLD/USD", 1000, 0).encodeABI() })
-  //   for (var i = 0; i <= 4; i++) {
-  //     await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 2, 1700000).encodeABI() })
-  //   }
-  //   await bankInstance2.updateCollateralPrice();
-  //   await bankInstance2.updateDebtPrice();
-
-  //   let debtPrice = await bankInstance2.getDebtTokenPrice();
-  //   let collateralPrice = await bankInstance2.getCollateralTokenPrice();
-  //   assert(debtPrice.eq(ethers.BigNumber.from(1000)));
-  //   assert(collateralPrice.eq(ethers.BigNumber.from(1700000)));
-
-  //   await dtInstance2.connect(randomUser2).approve(bankInstance2.address, largeDepositAmount);
-  //   await bankInstance2.connect(randomUser2).reserveDeposit(largeDepositAmount);
-  //   // ethers.utils.parseUnits("100");
-  //   await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseUnits("1"));
-  //   await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseUnits("1"));
-  //   await bankInstance2.connect(randomUser2).vaultBorrow(ethers.utils.parseUnits("1100"));
-  //   const collateralizationRatio = await bankInstance2.getVaultCollateralizationRatio(randomUser2.address);
-  //   assert(collateralizationRatio.eq(ethers.BigNumber.from(15301)));
-  // });
-
-  xit('should not liquidate overcollateralized vault', async function () {
-    await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
-
-    await dtInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-    await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-    await bankInstance2.connect(randomUser2).vaultBorrow(borrowAmount);
-    await expect(bankInstance2.connect(randomUser5).liquidate(randomUser2.address)).to.be.revertedWith("not keeper or admin");
-    //call as keeper
-    await expect(bankInstance2.connect(randomUser4).liquidate(randomUser2.address)).to.be.revertedWith("VAULT NOT UNDERCOLLATERALIZED")
-    //call as admin
-    await expect(bankInstance2.connect(deployer).liquidate(randomUser2.address)).to.be.revertedWith("VAULT NOT UNDERCOLLATERALIZED");
-  });
-
-  // xit('should liquidate undercollateralized vault', async function () {
-  // const BIGNUMBER_1000 = ethers.BigNumber.from(1000);
-  // await dtInstance2.approve(bankInstance2.address, depositAmount);
-  // await bankInstance2.reserveDeposit(depositAmount);
-
-  // // The first price for the collateral and debt
-  // await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("USDT", "USDT/USD", 1000, 0).encodeABI() })
-  // for (var i = 0; i <= 4; i++) {
-  //   await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 1, 1000).encodeABI() })
-  // }
-  // await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("GLD", "GLD/USD", 1000, 0).encodeABI() })
-  // for (var i = 0; i <= 4; i++) {
-  //   await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 2, 2000).encodeABI() })
-  // }
-  // await bankInstance2.updateCollateralPrice();
-  // await bankInstance2.updateDebtPrice();
-  // let debtPrice = await bankInstance2.getDebtTokenPrice();
-  // let collateralPrice = await bankInstance2.getCollateralTokenPrice();
-  // assert(debtPrice.eq(ethers.BigNumber.from(1000)));
-  // assert(collateralPrice.eq(2000));
-
-  // await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
-  // await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
-  // await bankInstance2.connect(randomUser2).vaultBorrow(largeBorrowAmount);
-  // let collateralizationRatio = await bankInstance2.connect(randomUser2).getVaultCollateralizationRatio(randomUser2.address);
-  // let b_amount = largeBorrowAmount.add(largeBorrowAmount.mul(ethers.BigNumber.from(ORIGINATION_FEE)).div(BIGNUMBER_10000));
-  // assert(collateralizationRatio.eq(
-  //   depositAmount.mul(ethers.BigNumber.from(2000)).mul(BIGNUMBER_10000).div(b_amount.mul(ethers.BigNumber.from(1000)))));
-
-  // // Lower the price of collateral, push the vault into undercollateralized
-  // // The first price for the collateral and debt
-  // await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("USDT", "USDT/USD", 1000, 0).encodeABI() })
-  // for (var i = 0; i <= 4; i++) {
-  //   await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 1, 1000).encodeABI() })
-  // }
-  // await web3.eth.sendTransaction({ to: oa, from: _accounts[0], gas: 4000000, data: oracle2.methods.requestData("GLD", "GLD/USD", 1000, 0).encodeABI() })
-  // for (var i = 0; i <= 4; i++) {
-  //   await web3.eth.sendTransaction({ to: oracle.address, from: _accounts[i], gas: 4000000, data: oracle2.methods.submitMiningSolution("nonce", 2, 1000).encodeABI() })
-  // }
-  // await bankInstance2.updateCollateralPrice();
-  // await bankInstance2.updateDebtPrice();
-  // debtPrice = await bankInstance2.getDebtTokenPrice();
-  // collateralPrice = await bankInstance2.getCollateralTokenPrice();
-  // assert(debtPrice.eq(ethers.BigNumber.from(1000)));
-  // assert(collateralPrice.eq(ethers.BigNumber.from(1000)));
-  // const repayAmount = await bankInstance2.connect(randomUser2).getVaultRepayAmount();
-
-  // collateralizationRatio = await bankInstance2.getVaultCollateralizationRatio(randomUser2.address);
-  // assert(collateralizationRatio.eq(((depositAmount.mul(BIGNUMBER_1000)).mul(BIGNUMBER_10000)).div(b_amount.mul(BIGNUMBER_1000))));
-  // await bankInstance2.liquidate(randomUser2.address);
-
-  // const BIGNUMBER_100 = ethers.BigNumber.from(100);
-  // const debtOwed = b_amount.add(
-  //   b_amount.mul(ethers.BigNumber.from(LIQUIDATION_PENALTY).mul(BIGNUMBER_100).div(BIGNUMBER_100).div(BIGNUMBER_100))
-  // );
-  // const collateralToLiquidate = debtOwed.mul(BIGNUMBER_1000).div(BIGNUMBER_1000);
-
-  // const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
-  // const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
-  // const debtReserveBalance = await bankInstance2.getReserveBalance();
-  // const collateralReserveBalance = await bankInstance2.getReserveCollateralBalance();
-  // const bankFactoryOwner = await bankInstance2.getBankFactoryOwner();
-  // const bankFactoryOwnerBalance = await ctInstance2.balanceOf(bankFactoryOwner);
-  // const feeAmt = collateralToLiquidate.div(ethers.BigNumber.from(10));
-  // assert(bankFactoryOwnerBalance.eq(feeAmt));
-  // assert(collateralAmount.eq(depositAmount.sub(collateralToLiquidate))); // TODO: Check math
-  // assert(debtAmount.eq(ethers.constants.Zero));
-  // assert(debtReserveBalance.eq(depositAmount.sub(largeBorrowAmount).add(repayAmount)));
-  // assert(collateralReserveBalance.eq(collateralToLiquidate.sub(feeAmt)));
-  // });
-
-  xit('should not update prices if not admin / reporter', async function () {
-    await expect(bankInstance2.connect(randomUser4).updateCollateralPrice()).to.be.revertedWith("not price updater or admin");
-    await expect(bankInstance2.connect(randomUser4).updateDebtPrice()).to.be.revertedWith("not price updater or admin");
-  });
+  /** Returns the 2-hour stream deposit of the provided flow rate.
+   * Toggle gwei or units by inputing "gwei" or "units as second param"
+   */
+  async function getStreamDeposit(flowRate:BigNumber,denom:string) {
+    return flowRate.mul( 60*60*2 );
+  }
+
+  /** Returns whether the debt recorded in the user's vault is as expected
+   * user: user who's debt is to be checked
+   * expectedDebt: expected debt to be compared to actual debt of user
+   * precision: how precise for comparison
+   */
+  async function checkDebt(user:SignerWithAddress,expectedDebt:BigNumber, precision: number) {
+    const contractRecordedDebt = await bankInstance2.connect(user).getVaultDebtAmount();
+    return parseFloat(ethers.utils.formatUnits(contractRecordedDebt)).toFixed(precision) == parseFloat(ethers.utils.formatUnits(expectedDebt)).toFixed(precision);
+  }
+
+  /** Returns whether the Super Debt Token reserves recorded in the contract is as expected
+   * expectedReserves: expected debt to be compared to actual debt of user
+   * precision: how precise for comparison
+   */
+  async function checkReserves(expectedReserves:BigNumber, precision: number) {
+    const contractRecordedReserveBalance = await bankInstance2.connect(deployer).getReserveBalance();
+    return parseFloat(ethers.utils.formatUnits(contractRecordedReserveBalance)).toFixed(precision) == parseFloat(ethers.utils.formatUnits(expectedReserves)).toFixed(precision);
+  }
+
+  async function sweepingCreateFlowCheck() {
+    // check 
+  }
+
+  async function closeEnough(x:BigNumber, y:BigNumber, precision:number) {
+    console.log("Expected", parseFloat(ethers.utils.formatUnits(x)).toFixed(precision));
+    console.log("Actual  ", parseFloat(ethers.utils.formatUnits(y)).toFixed(precision));
+    return parseFloat(ethers.utils.formatUnits(x)).toFixed(precision) == parseFloat(ethers.utils.formatUnits(y)).toFixed(precision);
+  }
 
   xit('SF happy path', async function () {
 
@@ -729,7 +325,7 @@ describe("Bank", function () {
     await dtUpgradeOperation.exec(randomUser2);
     await dtUpgradeOperation.exec(deployer);
 
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
     // Admin and user approves bank to spend debt super token for reserve deposit and repayment respectively
     const dtxApproveOperation = dtInstance2x.approve({
@@ -742,7 +338,7 @@ describe("Bank", function () {
     // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
     await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
 
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
     // User approves spending of collateral token and debt token by bank contract
     await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
@@ -751,7 +347,7 @@ describe("Bank", function () {
     // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
     await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
 
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
 
     console.log("Starting off with borrow:")
     // User starts stream of 20 dtInstance2x/year to bank
@@ -764,7 +360,7 @@ describe("Bank", function () {
 
     // Check balance of dtx in borrower
     console.log("1000 Borrow Amount should be reflected");
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
     await logFlows([deployer,randomUser2]);
 
     // Update stream to 10 dtInstance2x/year (repay 500 in debt)
@@ -776,7 +372,7 @@ describe("Bank", function () {
 
     // Check balance of dtx in borrower and bank
     console.log("500 repay should be reflected");
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
     await logFlows([deployer,randomUser2]);
 
     // Update stream to 40 dtInstance2x/year (borrow additional 1500)
@@ -788,7 +384,7 @@ describe("Bank", function () {
 
     // Check balance of dtx in borrower and bank
     console.log("1500 extra borrow should be reflected");
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
     await logFlows([deployer,randomUser2]);
 
 
@@ -802,109 +398,640 @@ describe("Bank", function () {
 
     // Check balance of dtx in borrower and bank
     console.log("Total repay should be reflected");
-    await checkTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+    await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
     await logFlows([deployer,randomUser2]);
 
   });
 
-  describe('Callback Specific Testing', async function () {
-    beforeEach(async function () {
+  context("Pre-checks", function () {
 
-      // approve DTx to transfer DT
-      await dtInstance2.connect(randomUser2).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
-      await dtInstance2.connect(deployer).approve(dtInstance2x.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+    xit("should not be able to borrow with no collateral")
 
-      // user2 and admin upgrade 20000 tokens
-      const dtUpgradeOperation = dtInstance2x.upgrade({
-        amount: ethers.utils.parseEther("20000").toString()
+    xit("should be able to reserve deposit properly")
+
+    xit("should be able to reserve withdraw properly")
+    
+    xit("should be able to reserve withdraw properly")
+    
+    xit("should be able to reserve withdraw properly")
+
+  })
+
+  context("create borrow checks", function () {
+
+    xit("should not be able to borrow when no reserves are available", async function () {
+      await setTokenBalances1()
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // User starts stream of 20 dtInstance2x/year to bank but should fail because there is not collateral
+      try {
+        await ( await sf.cfaV1.createFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: "634195839675",
+        }) ).exec( randomUser2 );
+      } catch (e) {
+        console.log("Errored out as expected - should not be able to borrow when no reserves are available");
+      }
+
+    })
+
+    xit("should not be able to borrow if not enough collateral", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      const dtxApproveOperation = dtInstance2x.approve({
+        receiver: bankInstance2.address,
+        amount: ethers.utils.parseEther("10000000000000000000000000000000000000").toString()
       });
-      await dtUpgradeOperation.exec(randomUser2);
-      await dtUpgradeOperation.exec(deployer);
+      await dtxApproveOperation.exec(deployer);
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 1000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await ctInstance2.connect(randomUser2).approve(bankInstance2.address, ethers.utils.parseEther("10000000000000000000000000000000000000"));
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("1000"));
+
+      // User starts stream of 20 dtInstance2x/year to bank (borrow 1000) but should fail because there is not collateral
+      try {
+        await ( await sf.cfaV1.createFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: "634195839675",
+        }) ).exec( randomUser2 );
+      } catch (e) {
+        console.log("Errored out as expected - should not be able to borrow if not enough collateral");
+      }
+
+    })
+
+    // fleshed out
+    xit("should be able to borrow correct amount", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // Original DT balance (in gwei)
+      const origDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+      
+      // start flow of 20 DTx/year
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      const strDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(2), "wei");
+      const newDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+
+      // Interest rate payment of 20 DTx/year -> 1000 DTx loan (20/2% = 1000)
+      await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+      // log flow rate changes
+      await logFlows([randomUser2]);
+
+      const randomUser2FlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: randomUser2.address,
+        providerOrSigner: superSigner
+      });
+      const bankOwnerFlowRate = await sf.cfaV1.getFlow({
+        superToken: dtInstance2x.address,
+        sender: bankInstance2.address,
+        receiver: randomUser6.address,
+        providerOrSigner: superSigner
+      });
+      const bankNetFlow = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: bankInstance2.address,
+        providerOrSigner: superSigner
+      });
+
+      // correct balance changes (down to 4 decimals)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origDTxBal).add(ethers.utils.parseUnits("1000")), // 1000 is expected borrow amount 
+          ethers.BigNumber.from(newDTxBal).add(strDep), 
+          4
+        ) ) == true
+      );
+
+      // assert owner income is equal to user's outflow
+      assert.equal(parseInt(randomUser2FlowRate), -parseInt(bankOwnerFlowRate.flowRate), "outflow != inflow");
+      // assert bank net flow is zero
+      assert.equal(bankNetFlow,"0", "non net-zero");
+
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(
+              await bankInstance2.connect(randomUser2).getReserveBalance() 
+          ),
+          ethers.BigNumber.from(ethers.utils.parseUnits("9000")),
+          4
+        ) ) == true,
+        "incorrect debt change"
+      );
+
+    })
+  });
+
+  context("update repay checks", function () {
+
+    beforeEach( async function () {
+
+      // reserve deposit
+      // start a borrow flow
+      
+    })
+
+    xit("should not be able to repay if not enough balance", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      // User transfers away almost all his/her super tokens so there's nothing left for repay
+      const dtxTransferOperation = dtInstance2x.transfer({
+        receiver: bankInstance2.address,
+        amount: ethers.utils.parseEther("14500").toString()
+      });
+      await dtxTransferOperation.exec( randomUser2 );
+
+      // update flow to 10 DTx/year -> 500 DTx (10/2% = 500) -> 500 - 1000 = -500 repay
+      try {
+        await ( await sf.cfaV1.updateFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: TEN_ETH_PER_YEAR_FLOW_RATE,
+        }) ).exec( randomUser2 );
+      } catch (e) {
+        console.log("Errored out as expected - should not be able to repay if user doesn't have enough debt token balance for repay");
+      }
 
     });
 
-    context("Pre-checks", function () {
-
-      it("should not be able to borrow with no collateral")
-
+    xit("should not be able to repay if not enough allowance", async function () {
+        await setTokenBalances1()
+  
+        // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+        await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+  
+        // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+        await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+  
+        // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+        await ( await sf.cfaV1.createFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+        }) ).exec( randomUser2 );
+  
+        // User cancels approval
+        const dtxTransferOperation = dtInstance2x.approve({
+          receiver: bankInstance2.address,
+          amount: ethers.utils.parseEther("0").toString()
+        });
+        await dtxTransferOperation.exec( randomUser2 );
+  
+        // update flow to 10 DTx/year -> 500 DTx (10/2% = 500) -> 500 - 1000 = -500 repay
+        try {
+          await ( await sf.cfaV1.updateFlow({
+            receiver: bankInstance2.address,
+            superToken: dtInstance2x.address,
+            flowRate: TEN_ETH_PER_YEAR_FLOW_RATE,
+          }) ).exec( randomUser2 );
+        } catch (e) {
+          console.log("Errored out as expected - should not be able to repay if user doesn't have enough allowance repay");
+        }
     })
 
-    context("create checks", function () {
+    xit("test withdrawals")
+      // should be able to borrow less
 
-      it("should not be able to borrow when no reserves are available")
+    xit("test deposits")
+      // should be able to borrow more
+ 
+    it("should be able to repay proper amounts", async function () {
+      await setTokenBalances1()
 
-      it("should be able to borrow correct amount")
-        // correct balance changes
-        // correct flow rate changes
-        // correct reserve balance changes
-        // correct debt changes
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // User approves bank to spend debt tokens for repay
+      const dtxTransferOperation = dtInstance2x.approve({
+        receiver: bankInstance2.address,
+        amount: ethers.utils.parseEther("10000000000000000").toString()
+      });
+      await dtxTransferOperation.exec( randomUser2 );
+
+      // Original DT balance (in gwei)
+      const origDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+      
+      // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      const strDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(2), "wei");
+      const newDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+
+      // log balances
+      await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+      // log flow rate changes
+      await logFlows([randomUser2]);
+
+      const randomUser2FlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: randomUser2.address,
+        providerOrSigner: superSigner
+      });
+      const bankOwnerFlowRate = await sf.cfaV1.getFlow({
+        superToken: dtInstance2x.address,
+        sender: bankInstance2.address,
+        receiver: randomUser6.address,
+        providerOrSigner: superSigner
+      });
+      const bankNetFlow = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: bankInstance2.address,
+        providerOrSigner: superSigner
+      });
+
+      // correct balance changes (down to 4 decimals)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origDTxBal).add(ethers.utils.parseUnits("1000")), // 1000 is expected borrow amount 
+          ethers.BigNumber.from(newDTxBal).add(strDep), 
+          4
+        ) ) == true
+      );
+
+      // assert owner income is equal to user's outflow
+      assert.equal(parseInt(randomUser2FlowRate), -parseInt(bankOwnerFlowRate.flowRate), "outflow != inflow");
+      // assert bank net flow is zero
+      assert.equal(bankNetFlow,"0", "non net-zero");
+
+      // correct debt changes
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(
+              await bankInstance2.connect(randomUser2).getReserveBalance() 
+          ),
+          ethers.BigNumber.from(ethers.utils.parseUnits("9000")),
+          4
+        ) ) == true
+      );
+
+      //// Update stream to borrow more
+
+      // Interest rate payment of 10 DTx/year -> 500 DTx loan (10/2% = 500) -> -500 repay
+      await sf.cfaV1.updateFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE,
+      }).exec( randomUser2 );
+
+      const newStrDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE, "wei");
+      const newNewDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+
+      // Interest rate payment of 20 DTx/year -> 1000 DTx loan (20/2% = 1000)
+      await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+      // log flow rate changes
+      await logFlows([randomUser2]);
+
+      const newRandomUser2FlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: randomUser2.address,
+        providerOrSigner: superSigner
+      });
+      const newBankOwnerFlowRate = await sf.cfaV1.getFlow({
+        superToken: dtInstance2x.address,
+        sender: bankInstance2.address,
+        receiver: randomUser6.address,
+        providerOrSigner: superSigner
+      });
+      const newBankNetFlow = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: bankInstance2.address,
+        providerOrSigner: superSigner
+      });
+
+      // correct balance changes (down to 2 decimals) - decrease of 500 (from 1000 to 1500)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(newDTxBal).add(strDep).sub(ethers.utils.parseUnits("500")), // 500 is expected borrow amount (prev 1000)
+          ethers.BigNumber.from(newNewDTxBal).add(newStrDep), 
+          4
+        ) ) == true,
+        "Incorrect loaned out amount change"
+      );
+
+      assert(
+        ( await checkDebt(
+            randomUser2,
+            ethers.BigNumber.from(ethers.utils.parseUnits("500")),
+            4
+        ) ) == true,
+        "Incorrect recorded debt amount"
+      );
+
+      // assert owner income is equal to user's outflow
+      assert.equal(parseInt(newRandomUser2FlowRate), -parseInt(newBankOwnerFlowRate.flowRate), "outflow != inflow");
+      // assert bank net flow is zero
+      assert.equal(newBankNetFlow,"0", "non net-zero");
+
+      // correct debt changes (should have increased by 500 from 9500)
+      console.log("Actual Reserve Balance",await bankInstance2.connect(randomUser2).getReserveBalance());
+      console.log("Expected Reserve Balance",ethers.utils.parseUnits("9500"));
+      assert(
+        ( await checkReserves(
+          ethers.BigNumber.from(ethers.utils.parseUnits("9500")),
+          4
+        ) ) == true,
+        "Incorrect reserve change"
+      );
 
     })
-
-    context("update repay checks", function () {
-
-      beforeEach( async function () {
-
-        // reserve deposit
-        // start a borrow flow
-        
-      })
-
-      it("should not be able to repay if not enough balance")
-
-      it("should not be able to repay if not enough allowance")
-
-      it("should be able to repay proper amounts")
-        // correct balance changes
-        // correct flow rate changes
-        // correct reserve balance changes
-        // correct debt changes
-
-    })
-
-    context("update borrow checks", function () {
-
-      beforeEach( async function () {
-
-        // reserve deposit
-        // start a borrow flow
-        
-      })
-
-      it("should not be able to borrow more if not enough reserves")
-
-      it("should not be able to repay if not enough collateral")
-
-      it("should be able to borrow proper amounts")
-        // correct balance changes
-        // correct flow rate changes
-        // correct reserve balance changes
-        // correct debt changes
-
-    })
-
-    context("delete checks", function () {
-
-      beforeEach( async function () {
-
-        // reserve deposit
-        // start a borrow flow
-        
-      })
-
-      it("should face liquidation if not enough allowance")
-
-      it("should face liquidation if not enough balance")
-
-      it("should be able to repay proper amounts")
-        // correct balance changes
-        // correct flow rate changes
-        // correct reserve balance changes
-        // correct debt changes
-
-    });
 
   });
 
-});
+  context("update borrow checks", function () {
 
+    beforeEach( async function () {
+
+      // reserve deposit
+      // start a borrow flow
+      
+    })
+
+    xit("should not be able to borrow more if not enough reserves (caused by reserveWithdraw)", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      // Admin reserve withdraws bank reserves
+      await bankInstance2.connect(deployer).reserveWithdraw(ethers.utils.parseEther("9000"));
+
+      // update flow to 30 DTx/year -> 1500 DTx (30/2% = 1500) -> 1500 - 1000 = 500 borrow
+      try {
+        await ( await sf.cfaV1.updateFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(3),
+        }) ).exec( randomUser2 );
+      } catch (e) {
+        console.log("Errored out as expected - should not be able to repay if not enough debt tokens in reserve");
+      }
+    })
+
+    xit("should not be able to borrow more if not enough reserves (caused by other borrowers)", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      // User 3 borrows a lot so there's none left for borrowing
+      // start flow of 180 DTx/year -> 9000 DTx (180/2% = 9000) -> +9000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(18),
+      }) ).exec( randomUser3 );
+
+      // update flow to 30 DTx/year -> 1500 DTx (30/2% = 1500) -> 1500 - 1000 = 500 borrow
+      try {
+        await ( await sf.cfaV1.updateFlow({
+          receiver: bankInstance2.address,
+          superToken: dtInstance2x.address,
+          flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(3),
+        }) ).exec( randomUser2 );
+      } catch (e) {
+        console.log("Errored out as expected - should not be able to repay if not enough debt tokens in reserve");
+      }
+    })
+
+    xit("should be able to borrow correct amount", async function () {
+      await setTokenBalances1()
+
+      // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
+      await bankInstance2.connect(deployer).reserveDeposit(ethers.utils.parseEther("10000"));
+
+      // User depsits 5000 worth of ctInstance2 (at start, ctInstance2 is worth 1000, just as dtInstance2 is)
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("5000"));
+
+      // Original DT balance (in gwei)
+      const origDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+      
+      // start flow of 20 DTx/year -> 1000 DTx (20/2% = 1000) -> +1000 loan
+      await ( await sf.cfaV1.createFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(2),
+      }) ).exec( randomUser2 );
+
+      const strDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(2), "wei");
+      const newDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+
+      // log balances
+      await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+      // log flow rate changes
+      await logFlows([randomUser2]);
+
+      const randomUser2FlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: randomUser2.address,
+        providerOrSigner: superSigner
+      });
+      const bankOwnerFlowRate = await sf.cfaV1.getFlow({
+        superToken: dtInstance2x.address,
+        sender: bankInstance2.address,
+        receiver: randomUser6.address,
+        providerOrSigner: superSigner
+      });
+      const bankNetFlow = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: bankInstance2.address,
+        providerOrSigner: superSigner
+      });
+
+      // correct balance changes (down to 4 decimals)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origDTxBal).add(ethers.utils.parseUnits("1000")), // 1000 is expected borrow amount 
+          ethers.BigNumber.from(newDTxBal).add(strDep), 
+          4
+        ) ) == true,
+        "Incorrect loaned out amount change"
+      );
+
+      // assert owner income is equal to user's outflow
+      assert.equal(parseInt(randomUser2FlowRate), -parseInt(bankOwnerFlowRate.flowRate), "outflow != inflow");
+      // assert bank net flow is zero
+      assert.equal(bankNetFlow,"0", "non net-zero");
+
+      // correct debt changes
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(
+              await bankInstance2.connect(randomUser2).getReserveBalance() 
+          ),
+          ethers.BigNumber.from(ethers.utils.parseUnits("9000")),
+          4
+        ) ) == true,
+        "Incorrect reserve change"
+      );
+
+      //// Update stream to borrow more
+
+      // Interest rate payment of 30 DTx/year -> 1500 DTx loan (30/2% = 1500)
+      await sf.cfaV1.updateFlow({
+        receiver: bankInstance2.address,
+        superToken: dtInstance2x.address,
+        flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(3),
+      }).exec( randomUser2 );
+
+      const newStrDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(3), "wei");
+      const newNewDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
+
+      // Interest rate payment of 20 DTx/year -> 1000 DTx loan (20/2% = 1000)
+      await logTokenBalances([randomUser2, deployer], ["User 2", "Admin"]);
+      // log flow rate changes
+      await logFlows([randomUser2]);
+
+      const newRandomUser2FlowRate = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: randomUser2.address,
+        providerOrSigner: superSigner
+      });
+      const newBankOwnerFlowRate = await sf.cfaV1.getFlow({
+        superToken: dtInstance2x.address,
+        sender: bankInstance2.address,
+        receiver: randomUser6.address,
+        providerOrSigner: superSigner
+      });
+      const newBankNetFlow = await sf.cfaV1.getNetFlow({
+        superToken: dtInstance2x.address,
+        account: bankInstance2.address,
+        providerOrSigner: superSigner
+      });
+
+      // correct balance changes (down to 4 decimals) - increase of 500 (from 1000 to 1500)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(newDTxBal).add(strDep).add(ethers.utils.parseUnits("500")), // 1500 is expected borrow amount (prev 1000)
+          ethers.BigNumber.from(newNewDTxBal).add(newStrDep), 
+          4
+        ) ) == true,
+        "Incorrect loaned out amount change"
+      );
+
+      // assert owner income is equal to user's outflow
+      assert.equal(parseInt(newRandomUser2FlowRate), -parseInt(newBankOwnerFlowRate.flowRate), "outflow != inflow");
+      // assert bank net flow is zero
+      assert.equal(newBankNetFlow,"0", "non net-zero");
+
+      // correct debt changes (should have fallen by 500 from 9000)
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(
+              await bankInstance2.connect(randomUser2).getReserveBalance() 
+          ),
+          ethers.BigNumber.from(ethers.utils.parseUnits("8500")),
+          4
+        ) ) == true,
+        "Incorrect reserve change"
+      );
+
+    })
+
+  })
+
+  context("delete checks", function () {
+
+    beforeEach( async function () {
+
+      // reserve deposit
+      // start a borrow flow
+      
+    })
+
+    xit("should face liquidation if not enough allowance")
+
+    xit("should face liquidation if not enough balance")
+
+    xit("should be able to repay proper amounts")
+      // correct balance changes
+      // correct flow rate changes
+      // correct reserve balance changes
+      // correct debt changes
+
+  });
+
+
+
+});

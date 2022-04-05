@@ -76,7 +76,7 @@ const config: HardhatUserConfig = {
     // }
   },
   mocha: {
-    timeout: 1000000,
+    timeout: 1000000000000000000000000000,
   },
   etherscan: {
     // Your API key for Etherscan
