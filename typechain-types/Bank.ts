@@ -64,7 +64,6 @@ export interface BankInterface extends utils.Interface {
     "renounceRole(bytes32,address)": FunctionFragment;
     "reserveDeposit(uint256)": FunctionFragment;
     "reserveWithdraw(uint256)": FunctionFragment;
-    "reserveWithdrawCollateral(uint256)": FunctionFragment;
     "revokeKeeper(address)": FunctionFragment;
     "revokeReporter(address)": FunctionFragment;
     "revokeRole(bytes32,address)": FunctionFragment;
@@ -246,10 +245,6 @@ export interface BankInterface extends utils.Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "reserveWithdraw",
-    values: [BigNumberish]
-  ): string;
-  encodeFunctionData(
-    functionFragment: "reserveWithdrawCollateral",
     values: [BigNumberish]
   ): string;
   encodeFunctionData(
@@ -452,10 +447,6 @@ export interface BankInterface extends utils.Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "reserveWithdraw",
-    data: BytesLike
-  ): Result;
-  decodeFunctionResult(
-    functionFragment: "reserveWithdrawCollateral",
     data: BytesLike
   ): Result;
   decodeFunctionResult(
@@ -837,11 +828,6 @@ export interface Bank extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
-    reserveWithdrawCollateral(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<ContractTransaction>;
-
     revokeKeeper(
       oldKeeper: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -1118,11 +1104,6 @@ export interface Bank extends BaseContract {
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
-  reserveWithdrawCollateral(
-    amount: BigNumberish,
-    overrides?: Overrides & { from?: string | Promise<string> }
-  ): Promise<ContractTransaction>;
-
   revokeKeeper(
     oldKeeper: string,
     overrides?: Overrides & { from?: string | Promise<string> }
@@ -1386,11 +1367,6 @@ export interface Bank extends BaseContract {
     ): Promise<void>;
 
     reserveWithdraw(
-      amount: BigNumberish,
-      overrides?: CallOverrides
-    ): Promise<void>;
-
-    reserveWithdrawCollateral(
       amount: BigNumberish,
       overrides?: CallOverrides
     ): Promise<void>;
@@ -1752,11 +1728,6 @@ export interface Bank extends BaseContract {
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
-    reserveWithdrawCollateral(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<BigNumber>;
-
     revokeKeeper(
       oldKeeper: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -2039,11 +2010,6 @@ export interface Bank extends BaseContract {
     ): Promise<PopulatedTransaction>;
 
     reserveWithdraw(
-      amount: BigNumberish,
-      overrides?: Overrides & { from?: string | Promise<string> }
-    ): Promise<PopulatedTransaction>;
-
-    reserveWithdrawCollateral(
       amount: BigNumberish,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;

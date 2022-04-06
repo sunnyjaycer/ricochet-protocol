@@ -141,7 +141,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
 
         // State updates
         vaults[borrower].debtAmount += borrowAmount;
-        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate; // might be unnecesary
+        vaults[borrower].interestPaymentFlow = interestPaymentFlowRate;
         reserve.debtBalance -= borrowAmount;
 
     }
@@ -189,8 +189,11 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
 
         // get borrower from agreementData
         (address borrower, ) = abi.decode(_agreementData, (address, address));
+        console.logAddress(borrower);
 
         bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount);
+        console.logString("Repaysuccess");
+        console.logBool(repaySuccess);
 
         // should probably add getting function checking that it is safe to stop stream
         // perform liquidation if the repay is not successful
@@ -203,10 +206,11 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
 
         // reduce stream to owner
         (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
-        if (currentOwnerFlow - vaults[borrower].interestPaymentFlow == 0) {
+        int96 newOwnerFlow = currentOwnerFlow - vaults[borrower].interestPaymentFlow;
+        if (newOwnerFlow == 0) {
             newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
         } else {
-            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), currentOwnerFlow - vaults[borrower].interestPaymentFlow );
+            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), newOwnerFlow );
         }
 
         delete vaults[borrower];
@@ -281,9 +285,16 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         returns (bytes memory newCtx)
     {
         // According to the app basic law, we should never revert in a termination callback
+
+        console.logString("Delete flow callback activated1");
+
         if (!_isValidToken(_superToken) || !_isCFAv1(_agreementClass)) return _ctx;
 
+        console.logString("Delete flow callback activated2");
+
         return _deleteFlow(_agreementData, _ctx);
+
+        console.logString("Delete flow callback activated3");
 
     }
 
@@ -531,32 +542,6 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
     }
 
     /**
-  * @dev This function allows the user to withdraw their collateral
-         Withdraws incur a 0.5% fee paid to the bankFactoryOwner
-  * @param amount is the amount to withdraw
-  */
-    function reserveWithdrawCollateral(uint256 amount)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
-        require(
-            reserve.collateralBalance >= amount,
-            "NOT ENOUGH COLLATERAL IN RESERVE"
-        );
-        uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
-        reserve.collateralBalance -= amount;
-        emit ReserveWithdraw(collateral.tokenAddress, amount);
-        IERC20(collateral.tokenAddress).safeTransfer(
-            msg.sender,
-            amount - feeAmount
-        );
-        IERC20(collateral.tokenAddress).safeTransfer(
-            _bankFactoryOwner,
-            feeAmount
-        );
-    }
-
-    /**
      * @dev Use this function to allow users to deposit collateral to the vault
      * @param amount is the collateral amount
      */
@@ -577,17 +562,24 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
      * @param amount withdrawn
      */
     function vaultWithdraw(uint256 amount) external {
+        // cannot withdraw more than available collateral
         require(
             amount <= vaults[msg.sender].collateralAmount,
             "CANNOT WITHDRAW MORE COLLATERAL"
         );
-        // 
+        // the most you can borrow after withdrawal is:
+        // the value of currect collateral amount less withdraw amount reframed to debt quantity
+        // multiplied by collateralization ratio
+        // so if you have 100 of post-withdraw collateral and C.R. is 150%, then your maxBorrowAfterWithdraw is 150
         uint256 maxBorrowAfterWithdraw = (((vaults[msg.sender]
             .collateralAmount - amount) * collateral.price) /
             debt.price /
             reserve.collateralizationRatio) * 100;
+        // reframe to collateral price granularity
         maxBorrowAfterWithdraw *= debt.priceGranularity;
         maxBorrowAfterWithdraw /= collateral.priceGranularity;
+        // only allow withdraw if current debt amount is less than the new max borrow
+        // if it's over, then you will have more outstanding debt than what's allowed
         require(
             vaults[msg.sender].debtAmount <= maxBorrowAfterWithdraw,
             "CANNOT UNDERCOLLATERALIZE VAULT"

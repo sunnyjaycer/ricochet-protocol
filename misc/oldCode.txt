@@ -171,3 +171,31 @@
     await checkTokenBalances([randomUser2, deployer], ["User 2","Admin"]);
 
   });
+
+**************************** OLD ADMIN COLLATERAL WITHDRAW FUNCTION THAT MAKES NO SENSE ****************************
+
+  //     /**
+//   * @dev This function allows the bank admin to withdraw their collateral
+//          Withdraws incur a 0.5% fee paid to the bankFactoryOwner
+//   * @param amount is the amount to withdraw
+//   */
+//     function reserveWithdrawCollateral(uint256 amount)
+//         external
+//         onlyRole(DEFAULT_ADMIN_ROLE)
+//     {
+//         require(
+//             reserve.collateralBalance >= amount,
+//             "NOT ENOUGH COLLATERAL IN RESERVE"
+//         );
+//         uint256 feeAmount = amount / 200; // Bank Factory collects 0.5% fee
+//         reserve.collateralBalance -= amount;
+//         emit ReserveWithdraw(collateral.tokenAddress, amount);
+//         IERC20(collateral.tokenAddress).safeTransfer(
+//             msg.sender,
+//             amount - feeAmount
+//         );
+//         IERC20(collateral.tokenAddress).safeTransfer(
+//             _bankFactoryOwner,
+//             feeAmount
+//         );
+//     }
