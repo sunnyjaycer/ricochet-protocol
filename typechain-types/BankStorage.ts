@@ -297,10 +297,9 @@ export interface BankStorage extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
-        createdAt: BigNumber;
         interestPaymentFlow: BigNumber;
       }
     >;
@@ -361,10 +360,9 @@ export interface BankStorage extends BaseContract {
     arg0: string,
     overrides?: CallOverrides
   ): Promise<
-    [BigNumber, BigNumber, BigNumber, BigNumber] & {
+    [BigNumber, BigNumber, BigNumber] & {
       collateralAmount: BigNumber;
       debtAmount: BigNumber;
-      createdAt: BigNumber;
       interestPaymentFlow: BigNumber;
     }
   >;
@@ -425,10 +423,9 @@ export interface BankStorage extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
-        createdAt: BigNumber;
         interestPaymentFlow: BigNumber;
       }
     >;

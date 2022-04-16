@@ -23,6 +23,7 @@ export interface BankInterface extends utils.Interface {
     "DEFAULT_ADMIN_ROLE()": FunctionFragment;
     "KEEPER_ROLE()": FunctionFragment;
     "REPORTER_ROLE()": FunctionFragment;
+    "_bankFactoryOwner()": FunctionFragment;
     "addKeeper(address)": FunctionFragment;
     "addReporter(address)": FunctionFragment;
     "afterAgreementCreated(address,address,bytes32,bytes,bytes,bytes)": FunctionFragment;
@@ -58,8 +59,8 @@ export interface BankInterface extends utils.Interface {
     "getVaultInterestPaymentFlowAmount()": FunctionFragment;
     "grantRole(bytes32,address)": FunctionFragment;
     "hasRole(bytes32,address)": FunctionFragment;
-    "init(address,string,uint256,uint256,uint256,uint256,uint256,address,address)": FunctionFragment;
-    "liquidate(address)": FunctionFragment;
+    "init(address,string,uint256,uint256,uint256,address,address)": FunctionFragment;
+    "liquidate(address,bytes)": FunctionFragment;
     "owner()": FunctionFragment;
     "renounceRole(bytes32,address)": FunctionFragment;
     "reserveDeposit(uint256)": FunctionFragment;
@@ -89,6 +90,10 @@ export interface BankInterface extends utils.Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "REPORTER_ROLE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "_bankFactoryOwner",
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "addKeeper", values: [string]): string;
@@ -227,13 +232,14 @@ export interface BankInterface extends utils.Interface {
       BigNumberish,
       BigNumberish,
       BigNumberish,
-      BigNumberish,
-      BigNumberish,
       string,
       string
     ]
   ): string;
-  encodeFunctionData(functionFragment: "liquidate", values: [string]): string;
+  encodeFunctionData(
+    functionFragment: "liquidate",
+    values: [string, BytesLike]
+  ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "renounceRole",
@@ -307,6 +313,10 @@ export interface BankInterface extends utils.Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "REPORTER_ROLE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "_bankFactoryOwner",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "addKeeper", data: BytesLike): Result;
@@ -632,6 +642,8 @@ export interface Bank extends BaseContract {
 
     REPORTER_ROLE(overrides?: CallOverrides): Promise<[string]>;
 
+    _bankFactoryOwner(overrides?: CallOverrides): Promise<[string]>;
+
     addKeeper(
       keeper: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -796,10 +808,8 @@ export interface Bank extends BaseContract {
       creator: string,
       bankName: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       bankFactoryOwner: string,
       oracleContract: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -807,6 +817,7 @@ export interface Bank extends BaseContract {
 
     liquidate(
       vaultOwner: string,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
 
@@ -897,10 +908,9 @@ export interface Bank extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
-        createdAt: BigNumber;
         interestPaymentFlow: BigNumber;
       }
     >;
@@ -911,6 +921,8 @@ export interface Bank extends BaseContract {
   KEEPER_ROLE(overrides?: CallOverrides): Promise<string>;
 
   REPORTER_ROLE(overrides?: CallOverrides): Promise<string>;
+
+  _bankFactoryOwner(overrides?: CallOverrides): Promise<string>;
 
   addKeeper(
     keeper: string,
@@ -1072,10 +1084,8 @@ export interface Bank extends BaseContract {
     creator: string,
     bankName: string,
     interestRate: BigNumberish,
-    originationFee: BigNumberish,
     collateralizationRatio: BigNumberish,
     liquidationPenalty: BigNumberish,
-    period: BigNumberish,
     bankFactoryOwner: string,
     oracleContract: string,
     overrides?: Overrides & { from?: string | Promise<string> }
@@ -1083,6 +1093,7 @@ export interface Bank extends BaseContract {
 
   liquidate(
     vaultOwner: string,
+    _ctx: BytesLike,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
 
@@ -1173,10 +1184,9 @@ export interface Bank extends BaseContract {
     arg0: string,
     overrides?: CallOverrides
   ): Promise<
-    [BigNumber, BigNumber, BigNumber, BigNumber] & {
+    [BigNumber, BigNumber, BigNumber] & {
       collateralAmount: BigNumber;
       debtAmount: BigNumber;
-      createdAt: BigNumber;
       interestPaymentFlow: BigNumber;
     }
   >;
@@ -1187,6 +1197,8 @@ export interface Bank extends BaseContract {
     KEEPER_ROLE(overrides?: CallOverrides): Promise<string>;
 
     REPORTER_ROLE(overrides?: CallOverrides): Promise<string>;
+
+    _bankFactoryOwner(overrides?: CallOverrides): Promise<string>;
 
     addKeeper(keeper: string, overrides?: CallOverrides): Promise<void>;
 
@@ -1342,16 +1354,18 @@ export interface Bank extends BaseContract {
       creator: string,
       bankName: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       bankFactoryOwner: string,
       oracleContract: string,
       overrides?: CallOverrides
     ): Promise<void>;
 
-    liquidate(vaultOwner: string, overrides?: CallOverrides): Promise<void>;
+    liquidate(
+      vaultOwner: string,
+      _ctx: BytesLike,
+      overrides?: CallOverrides
+    ): Promise<string>;
 
     owner(overrides?: CallOverrides): Promise<string>;
 
@@ -1433,10 +1447,9 @@ export interface Bank extends BaseContract {
       arg0: string,
       overrides?: CallOverrides
     ): Promise<
-      [BigNumber, BigNumber, BigNumber, BigNumber] & {
+      [BigNumber, BigNumber, BigNumber] & {
         collateralAmount: BigNumber;
         debtAmount: BigNumber;
-        createdAt: BigNumber;
         interestPaymentFlow: BigNumber;
       }
     >;
@@ -1540,6 +1553,8 @@ export interface Bank extends BaseContract {
     KEEPER_ROLE(overrides?: CallOverrides): Promise<BigNumber>;
 
     REPORTER_ROLE(overrides?: CallOverrides): Promise<BigNumber>;
+
+    _bankFactoryOwner(overrides?: CallOverrides): Promise<BigNumber>;
 
     addKeeper(
       keeper: string,
@@ -1696,10 +1711,8 @@ export interface Bank extends BaseContract {
       creator: string,
       bankName: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       bankFactoryOwner: string,
       oracleContract: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -1707,6 +1720,7 @@ export interface Bank extends BaseContract {
 
     liquidate(
       vaultOwner: string,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
 
@@ -1804,6 +1818,8 @@ export interface Bank extends BaseContract {
     KEEPER_ROLE(overrides?: CallOverrides): Promise<PopulatedTransaction>;
 
     REPORTER_ROLE(overrides?: CallOverrides): Promise<PopulatedTransaction>;
+
+    _bankFactoryOwner(overrides?: CallOverrides): Promise<PopulatedTransaction>;
 
     addKeeper(
       keeper: string,
@@ -1982,10 +1998,8 @@ export interface Bank extends BaseContract {
       creator: string,
       bankName: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       bankFactoryOwner: string,
       oracleContract: string,
       overrides?: Overrides & { from?: string | Promise<string> }
@@ -1993,6 +2007,7 @@ export interface Bank extends BaseContract {
 
     liquidate(
       vaultOwner: string,
+      _ctx: BytesLike,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;
 

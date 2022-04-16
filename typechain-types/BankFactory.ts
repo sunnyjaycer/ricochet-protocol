@@ -21,7 +21,7 @@ export interface BankFactoryInterface extends utils.Interface {
   contractName: "BankFactory";
   functions: {
     "bankAddress()": FunctionFragment;
-    "createBank(string,uint256,uint256,uint256,uint256,uint256,address)": FunctionFragment;
+    "createBank(string,uint256,uint256,uint256,address)": FunctionFragment;
     "getBankAddressAtIndex(uint256)": FunctionFragment;
     "getNumberOfBanks()": FunctionFragment;
     "owner()": FunctionFragment;
@@ -35,15 +35,7 @@ export interface BankFactoryInterface extends utils.Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "createBank",
-    values: [
-      string,
-      BigNumberish,
-      BigNumberish,
-      BigNumberish,
-      BigNumberish,
-      BigNumberish,
-      string
-    ]
+    values: [string, BigNumberish, BigNumberish, BigNumberish, string]
   ): string;
   encodeFunctionData(
     functionFragment: "getBankAddressAtIndex",
@@ -143,10 +135,8 @@ export interface BankFactory extends BaseContract {
     createBank(
       name: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       oracleAddress: string,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<ContractTransaction>;
@@ -175,10 +165,8 @@ export interface BankFactory extends BaseContract {
   createBank(
     name: string,
     interestRate: BigNumberish,
-    originationFee: BigNumberish,
     collateralizationRatio: BigNumberish,
     liquidationPenalty: BigNumberish,
-    period: BigNumberish,
     oracleAddress: string,
     overrides?: Overrides & { from?: string | Promise<string> }
   ): Promise<ContractTransaction>;
@@ -207,10 +195,8 @@ export interface BankFactory extends BaseContract {
     createBank(
       name: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       oracleAddress: string,
       overrides?: CallOverrides
     ): Promise<string>;
@@ -255,10 +241,8 @@ export interface BankFactory extends BaseContract {
     createBank(
       name: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       oracleAddress: string,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<BigNumber>;
@@ -288,10 +272,8 @@ export interface BankFactory extends BaseContract {
     createBank(
       name: string,
       interestRate: BigNumberish,
-      originationFee: BigNumberish,
       collateralizationRatio: BigNumberish,
       liquidationPenalty: BigNumberish,
-      period: BigNumberish,
       oracleAddress: string,
       overrides?: Overrides & { from?: string | Promise<string> }
     ): Promise<PopulatedTransaction>;

@@ -173,18 +173,6 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.REXReferral__factory>;
     getContractFactory(
-      name: "REXMarket",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.REXMarket__factory>;
-    getContractFactory(
-      name: "REXOneWayMarket",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.REXOneWayMarket__factory>;
-    getContractFactory(
-      name: "REXTwoWayMarket",
-      signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.REXTwoWayMarket__factory>;
-    getContractFactory(
       name: "RicochetToken",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.RicochetToken__factory>;
@@ -409,21 +397,6 @@ declare module "hardhat/types/runtime" {
       address: string,
       signer?: ethers.Signer
     ): Promise<Contracts.REXReferral>;
-    getContractAt(
-      name: "REXMarket",
-      address: string,
-      signer?: ethers.Signer
-    ): Promise<Contracts.REXMarket>;
-    getContractAt(
-      name: "REXOneWayMarket",
-      address: string,
-      signer?: ethers.Signer
-    ): Promise<Contracts.REXOneWayMarket>;
-    getContractAt(
-      name: "REXTwoWayMarket",
-      address: string,
-      signer?: ethers.Signer
-    ): Promise<Contracts.REXTwoWayMarket>;
     getContractAt(
       name: "RicochetToken",
       address: string,

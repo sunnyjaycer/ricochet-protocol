@@ -25,10 +25,8 @@ contract BankFactory is Ownable {
     function createBank(
         string memory name,
         uint256 interestRate,
-        uint256 originationFee,
         uint256 collateralizationRatio,
         uint256 liquidationPenalty,
-        uint256 period,
         address payable oracleAddress
     ) public returns (address) {
         address clone = Clones.clone(bankAddress);
@@ -36,10 +34,8 @@ contract BankFactory is Ownable {
             msg.sender,
             name,
             interestRate,
-            originationFee,
             collateralizationRatio,
             liquidationPenalty,
-            period,
             owner(),
             oracleAddress
         );

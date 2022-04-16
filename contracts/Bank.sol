@@ -43,7 +43,7 @@ import "hardhat/console.sol";
 contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBase {
     using SafeERC20 for IERC20;
 
-    address private _bankFactoryOwner;
+    address public _bankFactoryOwner;
 
     using CFAv1Library for CFAv1Library.InitData;
     CFAv1Library.InitData public cfaV1; //initialize cfaV1 variable
@@ -162,7 +162,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         uint256 minimumCollateralExpected = ( ( newBorrowAmount ) * reserve.collateralizationRatio ) / 100;
 
         // Collateral Amount greater than minimum collateral expected
-        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing too much");
+        require(vaults[borrower].collateralAmount >= minimumCollateralExpected, "Borrowing > collateral permits");
 
         if (newBorrowAmount > vaults[borrower].debtAmount) {
             // if new borrow amount is greater than current borrow amount, lend out more
@@ -170,7 +170,7 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         } else {
             // if less, we expect partial repayment. Attain payment or revert due to not enough balance or spend allowance
             bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount - newBorrowAmount);
-            require(repaySuccess, "Could not repay - insufficient approval or balance");
+            require(repaySuccess, "Insufficient approval or balance");
         }   
 
         // Start adjunct stream to owner (current + interest flow delta)
@@ -189,31 +189,31 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
 
         // get borrower from agreementData
         (address borrower, ) = abi.decode(_agreementData, (address, address));
-        console.logAddress(borrower);
 
-        bool repaySuccess = ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount);
-        console.logString("Repaysuccess");
-        console.logBool(repaySuccess);
+        uint256 borrowerAllowance = ISuperToken(debt.tokenAddress).allowance(borrower, address(this));
+        uint256 borrowerBalance = ISuperToken(debt.tokenAddress).balanceOf(borrower);
+
+        if( borrowerAllowance >= vaults[borrower].debtAmount && borrowerBalance >= vaults[borrower].debtAmount ) {
+            ISuperToken(debt.tokenAddress).transferFrom(borrower, address(this), vaults[borrower].debtAmount);
+            
+            // if it was a success reduce flow to owner
+            (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
+            int96 newOwnerFlow = currentOwnerFlow - vaults[borrower].interestPaymentFlow;
+            if (newOwnerFlow == 0) {
+                newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
+            } else {
+                newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), newOwnerFlow );
+            }
+            // increase reserve amount and zero out vault
+            reserve.debtBalance += vaults[borrower].debtAmount;
+            vaults[borrower].debtAmount = 0;
+            vaults[borrower].interestPaymentFlow = 0;
+        } else {
+            // perform liquidation if the repay is not successful
+            newCtx = liquidate(borrower, newCtx);
+        }
 
         // should probably add getting function checking that it is safe to stop stream
-        // perform liquidation if the repay is not successful
-        if (!repaySuccess) {
-            liquidate(borrower);
-        } else {
-            // if it was a success, increase reserve amount
-            reserve.debtBalance += vaults[borrower].debtAmount;
-        }
-
-        // reduce stream to owner
-        (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
-        int96 newOwnerFlow = currentOwnerFlow - vaults[borrower].interestPaymentFlow;
-        if (newOwnerFlow == 0) {
-            newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
-        } else {
-            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), newOwnerFlow );
-        }
-
-        delete vaults[borrower];
 
     }
 
@@ -285,16 +285,9 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         returns (bytes memory newCtx)
     {
         // According to the app basic law, we should never revert in a termination callback
-
-        console.logString("Delete flow callback activated1");
-
         if (!_isValidToken(_superToken) || !_isCFAv1(_agreementClass)) return _ctx;
 
-        console.logString("Delete flow callback activated2");
-
         return _deleteFlow(_agreementData, _ctx);
-
-        console.logString("Delete flow callback activated3");
 
     }
 
@@ -348,10 +341,8 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         address creator,
         string memory bankName,
         uint256 interestRate,
-        uint256 originationFee,
         uint256 collateralizationRatio,
         uint256 liquidationPenalty,
-        uint256 period,
         address bankFactoryOwner,
         address payable oracleContract
     ) public initializer {
@@ -386,6 +377,22 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
     }
 
     /**
+     * @dev Use this function to get and update the price for the collateral token
+     * using the Tellor Oracle.
+     */
+    function updateCollateralPrice() external {
+        require(
+            hasRole(REPORTER_ROLE, msg.sender) ||
+                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "not price updater or admin"
+        );
+        (, collateral.price, collateral.lastUpdatedAt) = getCurrentValue(
+            collateral.tellorRequestId
+        ); //,now - 1 hours);
+        emit PriceUpdate(collateral.tokenAddress, collateral.price);
+    }
+
+    /**
      * @dev This function sets the debt token properties, only callable one time
      */
     function setDebt(
@@ -402,22 +409,6 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         debt.price = debtTokenPrice;
         debt.priceGranularity = debtTokenPriceGranularity;
         debt.tellorRequestId = debtTokenTellorRequestId;
-    }
-
-    /**
-     * @dev Use this function to get and update the price for the collateral token
-     * using the Tellor Oracle.
-     */
-    function updateCollateralPrice() external {
-        require(
-            hasRole(REPORTER_ROLE, msg.sender) ||
-                hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "not price updater or admin"
-        );
-        (, collateral.price, collateral.lastUpdatedAt) = getCurrentValue(
-            collateral.tellorRequestId
-        ); //,now - 1 hours);
-        emit PriceUpdate(collateral.tokenAddress, collateral.price);
     }
 
     /**
@@ -596,20 +587,26 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
      * is charged a 10% fee which gets paid to the bankFactoryOwner
      * @param vaultOwner is the user the bank admins wants to liquidate
      */
-    function liquidate(address vaultOwner) public {
-        require(
-            hasRole(KEEPER_ROLE, msg.sender) ||
+    function liquidate(address vaultOwner, bytes memory _ctx) public returns (bytes memory newCtx) {
+        newCtx = _ctx;
+
+        if (msg.sender != address(superfluid.host)) { // allow if it's an internal call from the Superfluid host during deleteFlow liquidation)
+            require(
+                hasRole(KEEPER_ROLE, msg.sender) ||
                 hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "not keeper or admin"
-        );
-        // Require undercollateralization
-        require(
-            getVaultCollateralizationRatio(vaultOwner) <
-                reserve.collateralizationRatio * 100,
-            "VAULT NOT UNDERCOLLATERALIZED"
-        );
+                "not keeper, admin, or bank contract"
+            );
+            // Require undercollateralization
+            require(
+                getVaultCollateralizationRatio(vaultOwner) < reserve.collateralizationRatio * 100,
+                "VAULT NOT UNDERCOLLATERALIZED"
+            );
+        }
+
+        console.logString("made it past requires");
+
         // add liquidation penalty to debt outstanding
-        uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount * 100 * reserve.liquidationPenalty) / 100 / 100);
+        uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount *  reserve.liquidationPenalty) / 100 );
         // reframe the debt token quantity to collateral token quantity (because the collateral is getting slashed, need to know how much to take)
         uint256 collateralToLiquidate = (debtOwned * debt.price) /
             collateral.price;
@@ -620,23 +617,50 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
         }
 
         // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
-        uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
+        // uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
 
-        // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
-        reserve.collateralBalance += collateralToLiquidate - feeAmount;
+        // // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
+        // reserve.collateralBalance += collateralToLiquidate - feeAmount;
 
         // reduce the collateral possessed by the vault owner
         vaults[vaultOwner].collateralAmount -= collateralToLiquidate;
+        // ^^^ FIX: should also transfer away collateralToLiquidate to bankOwner so there aren't collateral tokens hanging in limbo
+        // limbo as in the sum of all vault owner collateral amounts would be less than total collateral in bank
 
         // forget outstanding debt
         vaults[vaultOwner].debtAmount = 0;
 
-        // transfer fee to bank
+        // transfer collateral seized in liquidation to bank factory owner
         IERC20(collateral.tokenAddress).safeTransfer(
             _bankFactoryOwner,
-            feeAmount
+            collateralToLiquidate
         );
+
+        console.logString("made it past fee transfer");
+
+        // reduce stream to owner
+        (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
+        int96 newOwnerFlow = currentOwnerFlow - vaults[vaultOwner].interestPaymentFlow;
+        console.logInt(currentOwnerFlow);
+        console.logInt(newOwnerFlow);
+        if (newOwnerFlow == 0) {
+            newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
+        } else {
+            newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), newOwnerFlow );
+        }
+
+        console.logString("made it to owner stream cancellation");
+
+        // cancel stream from borrower if it's active
+        (,int96 currentBorrowerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), vaultOwner, address(this));
+        if (currentBorrowerFlow != 0) {
+            newCtx = cfaV1.deleteFlowWithCtx(newCtx, vaultOwner, address(this), ISuperToken(debt.tokenAddress) );
+        } 
+
+        console.logString("end");
+
         emit Liquidation(vaultOwner, debtOwned);
+
     }
 
 }

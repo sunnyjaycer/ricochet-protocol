@@ -7,5 +7,9 @@ contract GLDToken is ERC20 {
     constructor(uint256 initialSupply) ERC20("Gold", "GLD") {
         _mint(msg.sender, initialSupply);
     }
+
+    function mint(uint256 mintAmount) external {
+        _mint(msg.sender, mintAmount);
+    }
 }
 // The default value of decimals is 18. To select a different value for decimals you should overload it.
