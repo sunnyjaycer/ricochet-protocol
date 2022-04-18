@@ -603,29 +603,19 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
             );
         }
 
-        console.logString("made it past requires");
-
         // add liquidation penalty to debt outstanding
         uint256 debtOwned = vaults[vaultOwner].debtAmount + ((vaults[vaultOwner].debtAmount *  reserve.liquidationPenalty) / 100 );
         // reframe the debt token quantity to collateral token quantity (because the collateral is getting slashed, need to know how much to take)
         uint256 collateralToLiquidate = (debtOwned * debt.price) /
             collateral.price;
 
-        // if the amount of collateral to liquidate is greater than the collateral actual available, set it as such
+        // if the amount of collateral to liquidate is greater than the collateral actually available, set it as such
         if (collateralToLiquidate > vaults[vaultOwner].collateralAmount) {
             collateralToLiquidate = vaults[vaultOwner].collateralAmount;
         }
 
-        // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
-        // uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
-
-        // // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
-        // reserve.collateralBalance += collateralToLiquidate - feeAmount;
-
         // reduce the collateral possessed by the vault owner
         vaults[vaultOwner].collateralAmount -= collateralToLiquidate;
-        // ^^^ FIX: should also transfer away collateralToLiquidate to bankOwner so there aren't collateral tokens hanging in limbo
-        // limbo as in the sum of all vault owner collateral amounts would be less than total collateral in bank
 
         // forget outstanding debt
         vaults[vaultOwner].debtAmount = 0;
@@ -636,28 +626,20 @@ contract Bank is BankStorage, AccessControlEnumerable, Initializable, SuperAppBa
             collateralToLiquidate
         );
 
-        console.logString("made it past fee transfer");
-
         // reduce stream to owner
         (,int96 currentOwnerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), address(this), _bankFactoryOwner);
         int96 newOwnerFlow = currentOwnerFlow - vaults[vaultOwner].interestPaymentFlow;
-        console.logInt(currentOwnerFlow);
-        console.logInt(newOwnerFlow);
         if (newOwnerFlow == 0) {
             newCtx = cfaV1.deleteFlowWithCtx(newCtx, address(this), _bankFactoryOwner, ISuperToken(debt.tokenAddress) );
         } else {
             newCtx = cfaV1.updateFlowWithCtx(newCtx, _bankFactoryOwner, ISuperToken(debt.tokenAddress), newOwnerFlow );
         }
 
-        console.logString("made it to owner stream cancellation");
-
         // cancel stream from borrower if it's active
         (,int96 currentBorrowerFlow,,) = superfluid.cfa.getFlow(ISuperToken(debt.tokenAddress), vaultOwner, address(this));
         if (currentBorrowerFlow != 0) {
             newCtx = cfaV1.deleteFlowWithCtx(newCtx, vaultOwner, address(this), ISuperToken(debt.tokenAddress) );
         } 
-
-        console.logString("end");
 
         emit Liquidation(vaultOwner, debtOwned);
 

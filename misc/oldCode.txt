@@ -199,3 +199,14 @@
 //             feeAmount
 //         );
 //     }
+
+************************ COMMENTS ON LIQUIDATION FOR BANK.SOL ************************
+
+        // 10% of the liquidated collateral goes to the Bank owner. Gets that amount here
+        // uint256 feeAmount = collateralToLiquidate / 10; // Bank Factory collects 10% fee
+
+        // // increase the amount of the reserve holds in the collateral token less the fee that's going to the bank owner
+        // reserve.collateralBalance += collateralToLiquidate - feeAmount;
+
+                // NOTE: transfer away all of collateralToLiquidate to bankOwner so there aren't collateral tokens hanging in limbo
+        // limbo as in the sum of all vault owner collateral amounts would be less than total collateral in bank

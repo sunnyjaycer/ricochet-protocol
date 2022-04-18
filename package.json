@@ -60,6 +60,6 @@
     "hardhat-contract-sizer": "^2.0.3",
     "ricochet-exchange-sfcontracts-used": "^1.0.2",
     "typechain": "^7.0.1",
-    "usingtellor": "^3.0.2"
+    "usingtellor": "^3.0.3"
   }
 }

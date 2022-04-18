@@ -93,7 +93,6 @@ xit('should create bank with correct parameters', async function () {
   });
 
   xit('should allow admin to withdraw reserves', async function () {
-
     await dtInstance2.connect(deployer).approve(bankInstance2.address, depositAmount);
     await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
     const beforeReserveBalance = await bankInstance2.getReserveBalance();

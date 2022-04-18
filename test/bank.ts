@@ -7,7 +7,7 @@ import { network, ethers, web3 } from 'hardhat';
 import { increaseTime } from "./helpers";
 import { assert, expect } from 'chai';
 
-import { Bank, GLDToken, TellorPlayground, USDToken } from "../typechain";
+import { Bank, GLDToken, TellorPlayground, USDToken } from "../typechain-types";
 import { dtInstance2Abi } from "./artifacts/DAIABI.js"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { BigNumber } from 'ethers';
@@ -16,6 +16,7 @@ import { Framework, SuperToken } from "@superfluid-finance/sdk-core";
 import deployFramework from "@superfluid-finance/ethereum-contracts/scripts/deploy-framework.js";
 const deployTestToken = require("@superfluid-finance/ethereum-contracts/scripts/deploy-test-token");
 const deploySuperToken = require("@superfluid-finance/ethereum-contracts/scripts/deploy-super-token");
+const TellorPlaygroundABI = require('usingtellor/artifacts/contracts/TellorPlayground.sol/TellorPlayground.json');
 
 describe("Bank", function () {
   const DEFAULT_ADMIN_ROLE = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -34,7 +35,7 @@ describe("Bank", function () {
   const BANK_NAME = "Test Bank";
   const TELLOR_ORACLE_ADDRESS = '0xACC2d27400029904919ea54fFc0b18Bf07C57875';
   const TELLOR_REQUEST_ID = 60;
-  let oracle;
+  let playground;
   const INITIAL_BALANCE = "20000";
   let depositAmount: BigNumber;
   let largeDepositAmount: BigNumber;
@@ -166,6 +167,11 @@ describe("Bank", function () {
     await bankInstance2.addReporter(randomUser5.address);
     await bankInstance2.addReporter(randomUser6.address);
 
+    // set up oracle
+		const TellorPlayground = await ethers.getContractFactory("TellorPlayground");
+		playground = await TellorPlayground.deploy("TellorPlayground","TRBP");
+		await playground.deployed();
+
     console.log("Bank Address:", bankInstance2.address);
     console.log("Bank Owner:", await bankInstance2.connect(deployer).owner());
 
@@ -189,11 +195,11 @@ describe("Bank", function () {
       //// Set up initial token balances
 
       //  A non-admin has a positive balance (20,000)
-      await ctInstance2.transfer(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await ctInstance2.connect(randomUser2).mint(ethers.utils.parseUnits(INITIAL_BALANCE).toString());
       await dtInstance2.connect(deployer).mint(randomUser2.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-      await ctInstance2.transfer(randomUser3.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await ctInstance2.connect(randomUser3).mint(ethers.utils.parseUnits(INITIAL_BALANCE).toString());
       await dtInstance2.connect(deployer).mint(randomUser3.address, ethers.utils.parseUnits(INITIAL_BALANCE));
-      await ctInstance2.transfer(randomUser4.address, ethers.utils.parseUnits(INITIAL_BALANCE));
+      await ctInstance2.connect(randomUser4).mint(ethers.utils.parseUnits(INITIAL_BALANCE).toString());
       await dtInstance2.connect(deployer).mint(randomUser4.address, ethers.utils.parseUnits(INITIAL_BALANCE));
 
       //  The admin has a positive balance (20,000)
@@ -278,7 +284,7 @@ describe("Bank", function () {
     }
   }
 
-  async function backToBaseState(users:any[]) {
+  async function rewindToBaseState(users:any[]) {
     console.log("+++++++++++++ RESETTING STATE ++++++++++++");
     
     // loop through users
@@ -517,6 +523,190 @@ describe("Bank", function () {
 
   });
 
+  context("getter/setter and permissions", function () {
+
+    it('should create bank with correct parameters', async function () {
+      const interestRate = await bankInstance2.getInterestRate();
+      const collateralizationRatio = await bankInstance2.getCollateralizationRatio();
+      const liquidationPenalty = await bankInstance2.getLiquidationPenalty();
+      const reserveBalance = await bankInstance2.getReserveBalance();
+      const reserveCollateralBalance = await bankInstance2.getReserveCollateralBalance();
+
+      const isAdmin = await bankInstance2.hasRole(DEFAULT_ADMIN_ROLE, deployer.address);
+      const isKeeper1 = await bankInstance2.hasRole(KEEPER_ROLE, randomUser3.address);
+      const isKeeper2 = await bankInstance2.hasRole(KEEPER_ROLE, randomUser4.address);
+      const isReporter1 = await bankInstance2.hasRole(REPORTER_ROLE, randomUser5.address);
+      const isReporter2 = await bankInstance2.hasRole(REPORTER_ROLE, randomUser6.address);
+      const dtAddress = await bankInstance2.getDebtTokenAddress();
+      const ctAddress = await bankInstance2.getCollateralTokenAddress();
+      const name = await bankInstance2.getName();
+  
+      assert.ok(isAdmin);
+      assert.ok(isKeeper1);
+      assert.ok(isKeeper2);
+      assert.ok(isReporter1);
+      assert.ok(isReporter2);
+      assert.equal(name, BANK_NAME);
+      assert(interestRate.eq(ethers.BigNumber.from(INTEREST_RATE)),"incorrect IR");
+      assert(collateralizationRatio.eq(ethers.BigNumber.from(COLLATERALIZATION_RATIO)),"incorrect CR");
+      assert(liquidationPenalty.eq(ethers.BigNumber.from(LIQUIDATION_PENALTY)),"incorrect LiqPen");
+      assert(reserveBalance.eq(ethers.constants.Zero),"incorrect ResBal");
+      assert(reserveCollateralBalance.eq(ethers.constants.Zero),"Collat Bal != 0");
+      assert(dtAddress == dtInstance2x.address,"incorrect DT address");
+      assert(ctAddress == ctInstance2.address,"incorrect CT address");
+    });
+
+    it('only admin role should add / remove new roles', async function () {
+      const admin = await bankInstance2.getRoleMember(DEFAULT_ADMIN_ROLE, 0);
+      assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.constants.Two));
+      assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.constants.Two));
+  
+      // user not in role adds keeper
+      await expect(bankInstance2.connect(randomUser7).addKeeper(randomUser8.address))
+        .to.be.revertedWith("AccessControl");
+      await expect(bankInstance2.connect(randomUser7).addReporter(randomUser8.address))
+        .to.be.revertedWith("AccessControl");
+  
+      // keeper adds another keeper
+      let keeper = (await bankInstance2.getRoleMember(KEEPER_ROLE, 0));
+      let keeperSigner = await ethers.getSigner(keeper);
+      await expect(bankInstance2.connect(keeperSigner).addKeeper(randomUser8.address)).to.be.revertedWith("AccessControl");
+  
+      // reporter adds another reporter  
+      let reporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 0);
+      let reporterSigner = await ethers.getSigner(reporter);
+      await expect(bankInstance2.connect(reporterSigner).addReporter(randomUser8.address)).to.be.revertedWith("AccessControl");
+  
+      // admin adds new keeper
+      let adminSigner = await ethers.getSigner(admin);
+      await bankInstance2.connect(adminSigner).addKeeper(randomUser8.address);
+      assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.BigNumber.from(3)));
+  
+      // admin adds new reporter
+      await bankInstance2.connect(adminSigner).addReporter(randomUser8.address);
+      assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.BigNumber.from(3)));
+  
+      // keeper removes keeper
+      keeper = (await bankInstance2.getRoleMember(KEEPER_ROLE, 0));
+      keeperSigner = await ethers.getSigner(keeper);
+      const removeKeeper = await bankInstance2.getRoleMember(KEEPER_ROLE, 1);
+      await expect(bankInstance2.connect(keeperSigner).revokeKeeper(removeKeeper)).to.be.revertedWith("AccessControl");
+  
+      // reporter removes reporter
+      reporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 0);
+      reporterSigner = await ethers.getSigner(reporter);
+      const removeReporter = await bankInstance2.getRoleMember(REPORTER_ROLE, 1);
+      await expect(bankInstance2.connect(reporterSigner).revokeReporter(removeReporter)).to.be.revertedWith("AccessControl");
+  
+      // admin removes keeper and updater
+      await bankInstance2.connect(adminSigner).revokeKeeper(removeKeeper);
+      await bankInstance2.connect(adminSigner).revokeReporter(removeReporter);
+  
+      assert((await bankInstance2.getRoleMemberCount(KEEPER_ROLE)).eq(ethers.BigNumber.from(2)));
+      assert((await bankInstance2.getRoleMemberCount(REPORTER_ROLE)).eq(ethers.BigNumber.from(2)));
+    });
+
+  })
+
+  context("reserve deposit/withdraw", function () {
+
+    it('should allow admin to deposit reserves', async function () {
+      const dtxApproveOperation = dtInstance2x.approve({
+        receiver: bankInstance2.address,
+        amount: depositAmount.toString()
+      })
+      await dtxApproveOperation.exec(deployer)
+      await bankInstance2.connect(deployer).reserveDeposit(depositAmount);
+
+      const reserveBalance = await bankInstance2.getReserveBalance();
+      assert(reserveBalance.eq(depositAmount));
+
+      const tokenBalance = await dtInstance2x.balanceOf({
+        account: bankInstance2.address,
+        providerOrSigner: deployer
+      })
+      
+      assert(ethers.BigNumber.from(tokenBalance).eq(depositAmount),"Incorrect DTx balance");
+
+      await rewindToBaseState([deployer]);
+    });
+
+    it('should allow admin to withdraw reserves', async function () {
+
+      //- Before state
+      const origDTxBalAdmin = await dtInstance2x.balanceOf({
+        account: deployer.address,
+        providerOrSigner: deployer
+      })
+
+      const origReserveBalance = await bankInstance2.getReserveBalance();
+      //-
+
+      //- Action
+      await bankInstance2.connect(deployer).reserveWithdraw(ethers.BigNumber.from(origReserveBalance));
+      //-
+
+      //- After state
+      const newDTxBalAdmin = await dtInstance2x.balanceOf({
+        account: deployer.address,
+        providerOrSigner: deployer
+      })
+
+      const newReserveBalance = await bankInstance2.getReserveBalance();
+      //-
+
+      //- Assertions
+      assert( // Admin balance increased by amount of reserves withdrawn
+        ethers.BigNumber.from(origDTxBalAdmin).add(origReserveBalance).eq(
+          ethers.BigNumber.from(newDTxBalAdmin)
+        ),
+        "Admin balance didn't increase by amount of reserves withdrawn"
+      );
+
+      assert( // recorded reserves are zeroed out
+        newReserveBalance.eq(ethers.BigNumber.from("0")),
+        "reserves not zeroed out"
+      );
+
+    });
+
+    it('should not allow non-admin to deposit reserves', async function () {
+      await expect(bankInstance2.connect(randomUser2).reserveDeposit(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
+    });
+  
+    it('should not allow non-admin to withdraw reserves', async function () {
+      await expect(bankInstance2.connect(randomUser2).reserveWithdraw(ethers.utils.parseUnits("100"))).to.be.revertedWith("AccessControl");
+    });
+  
+  })
+
+  context("vault deposit/withdraw", function () {
+
+    it('should allow user to withdraw collateral from vault', async function () {
+      await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
+      // let user2Allowance = await ctInstance2.allowance(randomUser2.address, bankInstance2.address);
+  
+      await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
+      await bankInstance2.connect(randomUser2).vaultWithdraw(depositAmount);
+  
+      const collateralAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
+      const debtAmount = await bankInstance2.connect(randomUser2).getVaultDebtAmount();
+      const tokenBalance = await ctInstance2.balanceOf(bankInstance2.address);
+      assert(collateralAmount.eq(ethers.constants.Zero));
+      assert(debtAmount.eq(ethers.constants.Zero));
+      assert(tokenBalance.eq(ethers.constants.Zero));
+    });
+
+    it('should not allow user to withdraw more collateral than they have in vault', async function () {
+      await ctInstance2.connect(randomUser2).approve(bankInstance2.address, depositAmount);
+      await bankInstance2.connect(randomUser2).vaultDeposit(depositAmount);
+      await expect(bankInstance2.connect(randomUser2).vaultWithdraw(largeDepositAmount)).to.be.revertedWith("CANNOT WITHDRAW MORE COLLATERAL");
+
+      await rewindToBaseState([randomUser2]);
+    });
+
+  })
+
   context("create borrow checks", function () {
 
     it("should not be able to borrow when no reserves are available", async function () {
@@ -536,7 +726,7 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to borrow when no reserves are available");
       }
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     })
 
@@ -565,7 +755,7 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to borrow if not enough collateral");
       }
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     })
 
@@ -643,7 +833,7 @@ describe("Bank", function () {
         "incorrect debt change"
       );
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     })
 
@@ -684,7 +874,7 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to repay if user doesn't have enough debt token balance for repay");
       }
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     });
 
@@ -721,7 +911,7 @@ describe("Bank", function () {
           console.log("Errored out as expected - should not be able to repay if user doesn't have enough allowance repay");
         }
 
-        await backToBaseState([randomUser2, deployer]);
+        await rewindToBaseState([randomUser2, deployer]);
 
     })
  
@@ -880,7 +1070,7 @@ describe("Bank", function () {
         "Incorrect reserve change"
       );
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     })
   });
@@ -916,7 +1106,7 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to repay if not enough debt tokens in reserve");
       }
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
 
     })
 
@@ -960,7 +1150,7 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to repay if not enough debt tokens in reserve");
       }
 
-      await backToBaseState([randomUser2, randomUser3, deployer]);
+      await rewindToBaseState([randomUser2, randomUser3, deployer]);
 
     })
 
@@ -991,16 +1181,10 @@ describe("Bank", function () {
         console.log("Errored out as expected - should not be able to borrow into undercollateralization");
       }
 
-      await backToBaseState([randomUser2, deployer]);
+      await rewindToBaseState([randomUser2, deployer]);
     });
 
-    it("successful withdrawal while borrowing")
-    // should be able to borrow less
-
-    it("success deposit while borrowing - allow greater borrowing than initially")
-      // should be able to borrow more
-
-    it("should be able to borrow correct amount", async function () {
+    it("should be able to borrow in correct amounts", async function () {
 
       // Admin deposits 10,000 dtInstance2x to bank as initial lending liquidity
 
@@ -1084,7 +1268,16 @@ describe("Bank", function () {
         "Incorrect reserve change"
       );
 
+    });
+
+    it("should be able to borrow more in correct amounts", async function () {
       //// Update stream to borrow more
+
+      // Original DT balance (in gwei)
+      const origDTxBal = await dtInstance2x.balanceOf({
+        account: randomUser2.address,
+        providerOrSigner: randomUser2
+      });
 
       // Interest rate payment of 30 DTx/year -> 1500 DTx loan (30/2% = 1500)
       await sf.cfaV1.updateFlow({
@@ -1093,8 +1286,11 @@ describe("Bank", function () {
         flowRate: TEN_ETH_PER_YEAR_FLOW_RATE.mul(3),
       }).exec( randomUser2 );
 
-      const newStrDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(3), "wei");
-      const newNewDTxBal = await dtInstance2x.balanceOf({
+      //// Grabbing data post-action
+
+      const prevStrDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(2), "wei");
+      const strDep = await getStreamDeposit(TEN_ETH_PER_YEAR_FLOW_RATE.mul(3), "wei");
+      const newDTxBal = await dtInstance2x.balanceOf({
         account: randomUser2.address,
         providerOrSigner: randomUser2
       });
@@ -1121,11 +1317,13 @@ describe("Bank", function () {
         providerOrSigner: superSigner
       });
 
+      //// Post-action assertions
+
       // correct balance changes (down to 4 decimals) - increase of 500 (from 1000 to 1500)
       assert(
         ( await closeEnough(
-          ethers.BigNumber.from(newDTxBal).add(strDep).add(ethers.utils.parseUnits("500")), // 1500 is expected borrow amount (prev 1000)
-          ethers.BigNumber.from(newNewDTxBal).add(newStrDep), 
+          ethers.BigNumber.from(origDTxBal).add(prevStrDep).add(ethers.utils.parseUnits("500")), // 1500 is expected borrow amount (prev 1000)
+          ethers.BigNumber.from(newDTxBal).add(strDep), 
           4
         ) ) == true,
         "Incorrect loaned out amount change"
@@ -1148,7 +1346,120 @@ describe("Bank", function () {
         "Incorrect reserve change"
       );
 
-      await backToBaseState([randomUser2, deployer]);
+      // await rewindToBaseState([randomUser2, deployer]);
+
+    })
+
+    it("successful withdrawal while borrowing", async function () {
+
+      // Original User CT balance (in gwei)
+      const origCTBalUser = await ctInstance2.balanceOf(randomUser2.address);
+
+      // Original Bank CT balance (in gwei)
+      const origCTBalBank = await ctInstance2.balanceOf(bankInstance2.address);
+
+      // Original recorded vault amount
+      const origUserVaultAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
+
+      // withdraw 1000 | for user, new collateral = 4000 & debt = 1500
+      await bankInstance2.connect(randomUser2).vaultWithdraw(ethers.utils.parseEther("1000"))
+
+      // Original User CT balance (in gwei)
+      const newCTBalUser = await ctInstance2.balanceOf(randomUser2.address);
+
+      // Original Bank CT balance (in gwei)
+      const newCTBalBank = await ctInstance2.balanceOf(bankInstance2.address);
+
+      // Original recorded vault amount
+      const newUserVaultAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
+
+      // User balance should increase
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origCTBalUser).add(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newCTBalUser),
+          4
+        ) ) == true,
+        "User - incorrect collateral token balance change"
+      )
+      
+      // Bank balance should decrease
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origCTBalBank).sub(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newCTBalBank),
+          4
+        ) ) == true,
+        "Bank - incorrect collateral token balance change"
+      )
+
+      // recorded vault amount should have decreased
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origUserVaultAmount).sub(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newUserVaultAmount),
+          4
+        ) ) == true,
+        "User - incorrect vault collateral amount change"
+      )
+      
+            
+    })
+
+    it("successful deposit while borrowing", async function () {
+
+      // Original User CT balance (in gwei)
+      const origCTBalUser = await ctInstance2.balanceOf(randomUser2.address);
+
+      // Original Bank CT balance (in gwei)
+      const origCTBalBank = await ctInstance2.balanceOf(bankInstance2.address);
+
+      // Original recorded vault amount
+      const origUserVaultAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
+
+      // withdraw 1000 | for user, new collateral = 5000 & debt = 1500
+      await bankInstance2.connect(randomUser2).vaultDeposit(ethers.utils.parseEther("1000"))
+
+      // Original User CT balance (in gwei)
+      const newCTBalUser = await ctInstance2.balanceOf(randomUser2.address);
+
+      // Original Bank CT balance (in gwei)
+      const newCTBalBank = await ctInstance2.balanceOf(bankInstance2.address);
+
+      // Original recorded vault amount
+      const newUserVaultAmount = await bankInstance2.connect(randomUser2).getVaultCollateralAmount();
+
+      // User balance should decrease
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origCTBalUser).sub(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newCTBalUser),
+          4
+        ) ) == true,
+        "User - incorrect collateral token balance change"
+      );
+      
+      // Bank balance should increase
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origCTBalBank).add(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newCTBalBank),
+          4
+        ) ) == true,
+        "Bank - incorrect collateral token balance change"
+      );
+
+      // recorded vault amount should have decreased
+      assert(
+        ( await closeEnough(
+          ethers.BigNumber.from(origUserVaultAmount).add(ethers.utils.parseEther("1000")),
+          ethers.BigNumber.from(newUserVaultAmount),
+          4
+        ) ) == true,
+        "User - incorrect vault collateral amount change"
+      );
+
+      await rewindToBaseState([randomUser2,deployer]);
 
     })
 
@@ -1215,7 +1526,7 @@ describe("Bank", function () {
         providerOrSigner: superSigner
       })).flowRate ).to.equal("0", "interest payment stream not cancelled")
 
-      await backToBaseState([randomUser2,deployer]);
+      await rewindToBaseState([randomUser2,deployer]);
 
     })
 
@@ -1291,7 +1602,7 @@ describe("Bank", function () {
         providerOrSigner: superSigner
       })).flowRate ).to.equal("0", "interest payment stream not cancelled")
 
-      await backToBaseState([randomUser2,deployer]);
+      await rewindToBaseState([randomUser2,deployer]);
 
     })
 
@@ -1358,7 +1669,7 @@ describe("Bank", function () {
         providerOrSigner: superSigner
       })).flowRate ).to.equal("0", "interest payment stream not cancelled")   
       
-      await backToBaseState([randomUser2,deployer]);
+      await rewindToBaseState([randomUser2,deployer]);
 
     })
 
@@ -1384,14 +1695,15 @@ describe("Bank", function () {
       // set collateral token price down to a quarter of what it was (from 1000 to 250) (user's overall collateral value becomes 1250 while loan is 1000)
       // HELP! What am I missing here to set the collateralToken's price from 1000 to 250?
       
-      // // requesting the token price
-      // await web3.eth.sendTransaction({ to: TELLOR_ORACLE_ADDRESS, from: deployer.address, gas: 4000000, data: oracle.methods.requestData("GLD", "GLD/USD", 1000, 0).encodeABI() })
-      // // submitting transaction to actually change price reported by Tellor
-      // for (var i = 0; i <= 4; i++) {
-      //   await web3.eth.sendTransaction({ to: TELLOR_ORACLE_ADDRESS, from: deployer.address, gas: 4000000, data: oracle.methods.submitMiningSolution("nonce", 2, 250).encodeABI() })
-      // }
-      // // Call update to set price in rexBank contract
-      // await bankInstance2.updateCollateralPrice();
+      // requesting the token price
+      await playground.connect(deployer).requestData("")
+      await web3.eth.sendTransaction({ to: TELLOR_ORACLE_ADDRESS, from: deployer.address, gas: 4000000, data: oracle.methods.requestData("GLD", "GLD/USD", 1000, 0).encodeABI() })
+      // submitting transaction to actually change price reported by Tellor
+      for (var i = 0; i <= 4; i++) {
+        await web3.eth.sendTransaction({ to: TELLOR_ORACLE_ADDRESS, from: deployer.address, gas: 4000000, data: oracle.methods.submitMiningSolution("nonce", 2, 250).encodeABI() })
+      }
+      // Call update to set price in rexBank contract
+      await bankInstance2.updateCollateralPrice();
 
       // TODO: Liquidate and assert expectations
 
